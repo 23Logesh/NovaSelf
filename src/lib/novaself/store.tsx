@@ -10,6 +10,7 @@ import { isoDate } from "./calculations";
 import {
   defaultBooks, defaultDays, defaultDietPhases, defaultIntakes, defaultMess, defaultProfile,
   defaultReading, defaultSettings, defaultSkinLogs, defaultSupplements, defaultWorkoutPhases,
+  emptyUserState,
 } from "./mockData";
 import { signInWithGoogle, signOutOfGoogle, getValidAccessToken } from "./googleAuth";
 import {
@@ -73,7 +74,6 @@ const SHEET_HANDLE_KEY = "novaself.sheetHandle";
 // ---------------------------------------------------------------------------
 // In-memory OAuth state (never persisted)
 // ---------------------------------------------------------------------------
-// Stored at module level so it survives re-renders but never hits localStorage.
 let _memAccessToken: string | null = null;
 let _memSheetHandle: SheetHandle | null = null;
 
@@ -106,6 +106,11 @@ function storeSheetHandle(h: SheetHandle | null) {
   }
 }
 
+/**
+ * Pre-sign-in default state. Mock data intentionally included here so the
+ * unauthenticated welcome screen has something to render. This is NEVER
+ * written to a real Sheet — see signInGoogle() below.
+ */
 function baseState(): AppState {
   return {
     signedIn: false,
@@ -130,27 +135,19 @@ function baseState(): AppState {
 // ---------------------------------------------------------------------------
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadInitial());
-  // Expose the current SheetHandle to consumers via context.
-  const [sheetHandle, setSheetHandle] = useState<SheetHandle | null>(() => {
-    // Re-hydrate from localStorage; actual validity is checked in RootRedirect.
-    return loadStoredSheetHandle();
-  });
+  const [sheetHandle, setSheetHandle] = useState<SheetHandle | null>(() => loadStoredSheetHandle());
 
   // Debounce ref for auto-save.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ------------------------------------------------------------------
   // Persist to localStorage on every state change.
-  // ------------------------------------------------------------------
   useEffect(() => {
     if (typeof window === "undefined") return;
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
   }, [state]);
 
-  // ------------------------------------------------------------------
   // Debounced auto-save to Google Sheets (2.5s after last change).
-  // Only runs when the user is signed in and we have a sheet handle.
-  // ------------------------------------------------------------------
+  // Only runs when signed in and we have a handle.
   useEffect(() => {
     if (!state.signedIn || !sheetHandle) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -167,9 +164,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state, sheetHandle]);
 
-  // ------------------------------------------------------------------
-  // Theme class
-  // ------------------------------------------------------------------
+  // Theme class.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -177,9 +172,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     root.classList.toggle("dark", state.settings.theme === "dark");
   }, [state.settings.theme]);
 
-  // ------------------------------------------------------------------
-  // Actions
-  // ------------------------------------------------------------------
   const value = useMemo<Ctx>(() => {
     const update = (patch: Partial<AppState>) => setState((s) => ({ ...s, ...patch }));
 
@@ -192,26 +184,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const authResult = await signInWithGoogle();
         _memAccessToken = authResult.accessToken;
 
-        // Ensure the user's Sheet exists (create if first-ever sign-in).
+        // Ensure the user's Sheet exists (creates it if this is their first sign-in).
         const handle = await ensureUserSheet(authResult.accessToken);
         _memSheetHandle = handle;
         setSheetHandle(handle);
         storeSheetHandle(handle);
 
-        // Load existing data from the Sheet and hydrate state.
+        // Load whatever's already in the Sheet.
         const sheetState = await loadStateFromSheet(handle, authResult.accessToken);
-        const hydrated: Partial<AppState> = sheetState ?? {};
 
-        // If the Sheet was brand new / empty, the loaded slices will be empty
-        // arrays — treat empty days as "keep defaults" so the app doesn't look
-        // blank on first sign-in, but DO use sheet data if it has any entries.
-        update({
-          ...hydrated,
-          days: hydrated.days && hydrated.days.length > 0 ? hydrated.days : state.days,
-          signedIn: true,
-          // Preserve onboarded flag from local state if sheet doesn't have profile yet.
-          onboarded: hydrated.profile ? state.onboarded : state.onboarded,
-        });
+        // Detect a brand-new Sheet: no days AND no saved profile means the Sheet
+        // was just created and has never had real data written to it. In that case
+        // we must NOT carry forward the pre-sign-in mock data — reset to a genuine
+        // empty baseline so no fake entries end up in the user's Sheet.
+        const isNewSheet =
+          (!sheetState?.days || sheetState.days.length === 0) &&
+          !sheetState?.profile;
+
+        if (isNewSheet) {
+          // New user: empty slate. Preserve only device-level settings (theme,
+          // nutrient toggles, ollamaUrl) — those are not personal data.
+          update({
+            ...emptyUserState(),
+            settings: state.settings,
+            signedIn: true,
+            onboarded: false,
+          });
+        } else {
+          // Returning user: fully hydrate from Sheet data. Any key missing from
+          // sheetState falls back to the current (possibly stale) local value —
+          // that's intentional, Sheet is source of truth for what it has.
+          update({
+            ...(sheetState ?? {}),
+            signedIn: true,
+          });
+        }
       },
 
       signOut: async () => {

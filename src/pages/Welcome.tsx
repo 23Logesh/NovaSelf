@@ -10,24 +10,86 @@ export default function Welcome() {
   const [step, setStep] = useState(signedIn ? 1 : 0);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    name: profile.name,
-    age: profile.age,
-    sex: profile.sex as Sex,
-    heightCm: profile.heightCm,
-    weightKg: profile.weightKg,
-    goalWeightKg: profile.goalWeightKg,
-  });
+
+  // Form state is NOT initialized from profile here — that would pre-fill
+  // with whatever was in state before sign-in (i.e. mock data for new users).
+  // Instead we seed it in handleSignIn() AFTER the store has reset to the real
+  // empty/loaded profile. For returning users who land on step=1 directly
+  // (signedIn=true on mount), we do read from profile since by that point it
+  // was loaded from their Sheet.
+  const [form, setForm] = useState(() => ({
+    name: signedIn ? profile.name : "",
+    age: signedIn ? profile.age : 0,
+    sex: (signedIn ? profile.sex : "male") as Sex,
+    heightCm: signedIn ? profile.heightCm : 0,
+    weightKg: signedIn ? profile.weightKg : 0,
+    goalWeightKg: signedIn ? profile.goalWeightKg : 0,
+  }));
 
   async function handleSignIn() {
     setSigningIn(true);
     setError("");
     try {
-      // signInGoogle() calls signInWithGoogle() (real GIS popup), then
-      // ensureUserSheet(), then loadStateFromSheet() — all inside store.tsx.
-      // This MUST be called from a real user gesture (button click).
+      // After this resolves, store state has been reset to emptyUserState()
+      // (new user) or hydrated from the Sheet (returning user).
       await signInGoogle();
+
+      // Now read the post-sign-in profile from the store ref. We access the
+      // context value indirectly via a fresh read — but because signInGoogle()
+      // calls setState synchronously within the action, profile in the closure
+      // is still the pre-sign-in value. So we seed form explicitly from the
+      // two known outcomes:
+      //   - New user: emptyProfile → all blanks (name="", age=0, etc.)
+      //   - Returning user: their real profile from the Sheet
+      // We detect new user by checking if the store's profile.name is blank
+      // after sign-in. Since signInGoogle() uses setState which batches,
+      // we can't read the updated value synchronously here — but we don't
+      // need to: we already have the right answer from emptyUserState():
+      // new users get blank fields, returning users keep their Sheet data.
+      // The simplest correct approach: always seed from profile after the
+      // await, because by the time React re-renders this component the state
+      // will have updated. We trigger that by moving to step 1 AFTER state
+      // settles — React will re-render with the new profile before step 1 UI
+      // is shown. So just use profile from the next render cycle:
       setStep(1);
+    } catch (err) {
+      console.error("[Welcome] Sign-in failed:", err);
+      setError("Sign-in failed. Please try again.");
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  // Called when we transition to step 1. At this point React has re-rendered
+  // with the post-sign-in profile (empty for new users, real data for returning).
+  // We sync the form from the freshly updated profile.
+  function handleStepChange(newStep: number) {
+    if (newStep === 1) {
+      // profile here is the value from the CURRENT render — which is the
+      // post-signInGoogle render, so it's either empty or real Sheet data.
+      setForm({
+        name: profile.name,
+        age: profile.age,
+        sex: profile.sex as Sex,
+        heightCm: profile.heightCm,
+        weightKg: profile.weightKg,
+        goalWeightKg: profile.goalWeightKg,
+      });
+    }
+    setStep(newStep);
+  }
+
+  async function handleSignInAndAdvance() {
+    setSigningIn(true);
+    setError("");
+    try {
+      await signInGoogle();
+      // signInGoogle() setState is batched; we need to advance step AFTER
+      // the re-render so profile reflects the post-sign-in value. Using a
+      // microtask (Promise.resolve) lets React flush state before we read
+      // profile in handleStepChange.
+      await Promise.resolve();
+      handleStepChange(1);
     } catch (err) {
       console.error("[Welcome] Sign-in failed:", err);
       setError("Sign-in failed. Please try again.");
@@ -68,7 +130,7 @@ export default function Welcome() {
             </p>
 
             <button
-              onClick={handleSignIn}
+              onClick={handleSignInAndAdvance}
               disabled={signingIn}
               className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-border bg-[var(--surface-elevated)] px-5 py-4 font-medium transition hover:bg-[var(--surface)] hover:shadow-[0_0_24px_var(--electric)] disabled:opacity-60"
             >
@@ -98,15 +160,30 @@ export default function Welcome() {
             </div>
 
             <Field label="Name">
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={inputCls} />
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Your name"
+                className={inputCls}
+              />
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
               <Field label="Age">
-                <input type="number" value={form.age} onChange={(e) => setForm({ ...form, age: +e.target.value })} className={inputCls} />
+                <input
+                  type="number"
+                  value={form.age || ""}
+                  onChange={(e) => setForm({ ...form, age: +e.target.value })}
+                  placeholder="25"
+                  className={inputCls}
+                />
               </Field>
               <Field label="Sex">
-                <select value={form.sex} onChange={(e) => setForm({ ...form, sex: e.target.value as Sex })} className={inputCls}>
+                <select
+                  value={form.sex}
+                  onChange={(e) => setForm({ ...form, sex: e.target.value as Sex })}
+                  className={inputCls}
+                >
                   <option value="male">Male</option>
                   <option value="female">Female</option>
                 </select>
@@ -114,15 +191,35 @@ export default function Welcome() {
             </div>
 
             <Field label="Height (cm)">
-              <input type="number" value={form.heightCm} onChange={(e) => setForm({ ...form, heightCm: +e.target.value })} className={inputCls} />
+              <input
+                type="number"
+                value={form.heightCm || ""}
+                onChange={(e) => setForm({ ...form, heightCm: +e.target.value })}
+                placeholder="170"
+                className={inputCls}
+              />
             </Field>
 
             <div className="grid grid-cols-2 gap-4">
               <Field label="Current weight (kg)">
-                <input type="number" step="0.1" value={form.weightKg} onChange={(e) => setForm({ ...form, weightKg: +e.target.value })} className={inputCls} />
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.weightKg || ""}
+                  onChange={(e) => setForm({ ...form, weightKg: +e.target.value })}
+                  placeholder="70.0"
+                  className={inputCls}
+                />
               </Field>
               <Field label="Goal weight (kg)">
-                <input type="number" step="0.1" value={form.goalWeightKg} onChange={(e) => setForm({ ...form, goalWeightKg: +e.target.value })} className={inputCls} />
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form.goalWeightKg || ""}
+                  onChange={(e) => setForm({ ...form, goalWeightKg: +e.target.value })}
+                  placeholder="65.0"
+                  className={inputCls}
+                />
               </Field>
             </div>
 

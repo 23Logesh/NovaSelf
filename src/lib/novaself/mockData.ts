@@ -162,3 +162,45 @@ export const defaultReading: ReadingSession[] = Array.from({ length: 8 }).map((_
   pages: 10 + Math.floor(Math.random() * 20),
   minutes: 20 + Math.floor(Math.random() * 30),
 }));
+
+// ---------------------------------------------------------------------------
+// Empty state for real new users — used by signInGoogle() when the Sheet is
+// confirmed brand-new. Never shown pre-sign-in. Never written to a Sheet.
+// ---------------------------------------------------------------------------
+
+/** Blank profile shown on the onboarding form for a genuinely new user. */
+export const emptyProfile: Profile = {
+  name: "",
+  age: 0,
+  sex: "male",
+  heightCm: 0,
+  weightKg: 0,
+  goalWeightKg: 0,
+  startingWeightKg: 0,
+  activity: "moderate",
+  neckCm: 0,
+  waistCm: 0,
+  hipCm: 0,
+};
+
+/**
+ * The real zero-data baseline applied after sign-in to a brand-new Sheet.
+ * All lists are empty. Profile is blank. Settings carry over from the
+ * pre-sign-in defaults (theme, nutrient toggles) — those are user-device
+ * preferences, not personal data, so it's fine to keep them.
+ */
+export function emptyUserState() {
+  return {
+    profile: emptyProfile,
+    days: [] as DayLog[],
+    dietPhases: [] as DietPhase[],
+    mess: [] as MessItem[],
+    workoutPhases: [] as WorkoutPhase[],
+    skinLogs: [] as SkinLog[],
+    supplements: [] as Supplement[],
+    intakes: [] as SupplementIntake[],
+    books: [] as Book[],
+    readingSessions: [] as ReadingSession[],
+    chat: [] as ReturnType<typeof Array<import("./types").ChatMessage>>,
+  };
+}
