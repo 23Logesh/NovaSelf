@@ -30,6 +30,17 @@ export interface SheetHandle {
   webViewLink: string;
 }
 
+/**
+ * Return value from ensureUserSheet.
+ * `isNewlyCreated` is true ONLY when the sheet was actually created in this call.
+ * It is false when an existing sheet was found — regardless of what loadStateFromSheet
+ * later returns. This is the canonical signal for "brand-new user" vs "returning user".
+ */
+export interface EnsureSheetResult {
+  handle: SheetHandle;
+  isNewlyCreated: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -98,7 +109,17 @@ async function gPut(url: string, body: unknown, token: string) {
 // ---------------------------------------------------------------------------
 // ensureUserSheet
 // ---------------------------------------------------------------------------
-export async function ensureUserSheet(accessToken: string): Promise<SheetHandle> {
+/**
+ * Finds or creates the user's "NovaSelf Data" spreadsheet.
+ *
+ * Returns { handle, isNewlyCreated } where isNewlyCreated is TRUE only when
+ * the sheet was created in THIS call. It is FALSE when an existing sheet was
+ * found — even if the sheet happens to be empty for any reason.
+ *
+ * Callers MUST use isNewlyCreated (not the emptiness of a subsequent load)
+ * to decide whether to apply a blank-slate reset.
+ */
+export async function ensureUserSheet(accessToken: string): Promise<EnsureSheetResult> {
   // Search for an existing "NovaSelf Data" sheet this app created (drive.file scope
   // means we can only see files we created — perfect isolation).
   const query = encodeURIComponent(
@@ -108,8 +129,12 @@ export async function ensureUserSheet(accessToken: string): Promise<SheetHandle>
   const listData = await gDriveGet(listUrl, accessToken);
 
   if (listData.files && listData.files.length > 0) {
+    // Found an existing sheet — isNewlyCreated is explicitly false.
     const existing = listData.files[0];
-    return { spreadsheetId: existing.id, webViewLink: existing.webViewLink };
+    return {
+      handle: { spreadsheetId: existing.id, webViewLink: existing.webViewLink },
+      isNewlyCreated: false,
+    };
   }
 
   // Not found — create a new spreadsheet with all five tabs.
@@ -123,8 +148,11 @@ export async function ensureUserSheet(accessToken: string): Promise<SheetHandle>
   await _seedHeaders(created.spreadsheetId, accessToken);
 
   return {
-    spreadsheetId: created.spreadsheetId,
-    webViewLink: created.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${created.spreadsheetId}`,
+    handle: {
+      spreadsheetId: created.spreadsheetId,
+      webViewLink: created.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${created.spreadsheetId}`,
+    },
+    isNewlyCreated: true,
   };
 }
 

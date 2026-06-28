@@ -1,7 +1,9 @@
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity, Apple, BookOpen, Dumbbell, Home, Pill, Settings as Cog,
   Sparkles, Sun, Moon, LineChart, Salad, Droplets, MessageSquare,
+  MoreHorizontal, X, AlertTriangle,
 } from "lucide-react";
 import { useApp } from "@/lib/novaself/store";
 
@@ -23,10 +25,25 @@ const moreNav = [
 ] as const;
 
 export function AppShell() {
-  const { settings, updateSettings, profile } = useApp();
+  const { settings, updateSettings, profile, sheetLoadWarning, clearSheetLoadWarning } = useApp();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const [moreOpen, setMoreOpen] = useState(false);
+
   // FR-37: AI Chat only appears in navigation when an Ollama URL is configured.
   const aiChatAvailable = settings.ollamaUrl.trim().length > 0;
+
+  // Is any moreNav item the current active route? Used to highlight the More button.
+  const moreNavActive = moreNav.some((item) => pathname.startsWith(item.to));
+
+  const visibleMoreNav = moreNav.filter(
+    (item) => !("gated" in item && item.gated) || aiChatAvailable,
+  );
+
+  function handleMoreNavClick(to: string) {
+    setMoreOpen(false);
+    navigate(to);
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -76,11 +93,26 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 lg:pb-12">
+        {/* Sheet load warning banner — shown when an existing sheet returned empty on sign-in */}
+        {sheetLoadWarning && (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex-1">{sheetLoadWarning}</span>
+            <button
+              onClick={clearSheetLoadWarning}
+              className="shrink-0 text-amber-400/60 transition hover:text-amber-400"
+              aria-label="Dismiss warning"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         <Outlet />
       </main>
 
+      {/* ── Mobile bottom nav ── */}
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/60 bg-background/85 backdrop-blur-xl lg:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-5 px-2 py-1.5">
+        <div className="mx-auto grid max-w-md grid-cols-6 px-2 py-1.5">
           {nav.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.to);
@@ -97,8 +129,75 @@ export function AppShell() {
               </NavLink>
             );
           })}
+
+          {/* More button — opens the bottom sheet */}
+          <button
+            onClick={() => setMoreOpen(true)}
+            className={`flex flex-col items-center gap-1 rounded-lg py-2 text-[10px] transition ${
+              moreNavActive || moreOpen ? "text-[var(--electric)]" : "text-muted-foreground"
+            }`}
+            aria-label="More screens"
+          >
+            <MoreHorizontal
+              className={`h-5 w-5 transition ${
+                moreNavActive || moreOpen ? "drop-shadow-[0_0_6px_var(--electric)]" : ""
+              }`}
+            />
+            <span>More</span>
+          </button>
         </div>
       </nav>
+
+      {/* ── More bottom sheet (mobile only) ── */}
+      {moreOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
+            onClick={() => setMoreOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Sheet panel */}
+          <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border-t border-border/60 bg-background pb-safe lg:hidden">
+            {/* Handle */}
+            <div className="flex items-center justify-between px-5 pb-2 pt-4">
+              <span className="text-sm font-semibold text-foreground">More</span>
+              <button
+                onClick={() => setMoreOpen(false)}
+                className="grid h-7 w-7 place-items-center rounded-full bg-[var(--surface)] text-muted-foreground transition hover:text-foreground"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Nav items in a 3-column grid */}
+            <div className="grid grid-cols-3 gap-2 px-4 pb-8 pt-2">
+              {visibleMoreNav.map((item) => {
+                const Icon = item.icon;
+                const active = pathname.startsWith(item.to);
+                return (
+                  <button
+                    key={item.to}
+                    onClick={() => handleMoreNavClick(item.to)}
+                    className={`flex flex-col items-center gap-2 rounded-xl px-3 py-4 text-xs font-medium transition ${
+                      active
+                        ? "bg-[var(--electric)]/15 text-[var(--electric)]"
+                        : "bg-[var(--surface)] text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    <Icon
+                      className={`h-6 w-6 ${active ? "drop-shadow-[0_0_6px_var(--electric)]" : ""}`}
+                    />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
