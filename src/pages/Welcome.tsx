@@ -11,12 +11,6 @@ export default function Welcome() {
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState("");
 
-  // Form state is NOT initialized from profile here — that would pre-fill
-  // with whatever was in state before sign-in (i.e. mock data for new users).
-  // Instead we seed it in handleStepChange() AFTER the store has reset to the
-  // real empty/loaded profile. For returning users who land on step=1 directly
-  // (signedIn=true on mount), we do read from profile since by that point it
-  // was loaded from their Sheet.
   const [form, setForm] = useState(() => ({
     name: signedIn ? profile.name : "",
     age: signedIn ? profile.age : 0,
@@ -26,12 +20,6 @@ export default function Welcome() {
     goalWeightKg: signedIn ? profile.goalWeightKg : 0,
   }));
 
-  // ── Guard: already fully signed in + onboarded ───────────────────────────
-  // Handles: refresh on /welcome, back button, bookmark after onboarding done.
-  // Safe for the sign-in flow: new users have onboarded=false after signInGoogle(),
-  // so the guard doesn't fire mid-flow. Returning users (onboarded=true) get
-  // redirected to /dashboard as soon as signInGoogle() resolves — they skip
-  // the profile form entirely, which is correct.
   if (signedIn && onboarded) {
     return <Navigate to="/dashboard" replace />;
   }
@@ -41,10 +29,6 @@ export default function Welcome() {
     setError("");
     try {
       await signInGoogle();
-      // signInGoogle() setState is batched; we need to advance step AFTER
-      // the re-render so profile reflects the post-sign-in value. Using a
-      // microtask (Promise.resolve) lets React flush state before we read
-      // profile in handleStepChange.
       await Promise.resolve();
       handleStepChange(1);
     } catch (err) {
@@ -55,13 +39,8 @@ export default function Welcome() {
     }
   }
 
-  // Called when we transition to step 1. At this point React has re-rendered
-  // with the post-sign-in profile (empty for new users, real data for returning).
-  // We sync the form from the freshly updated profile.
   function handleStepChange(newStep: number) {
     if (newStep === 1) {
-      // profile here is the value from the CURRENT render — which is the
-      // post-signInGoogle render, so it's either empty or real Sheet data.
       setForm({
         name: profile.name,
         age: profile.age,
@@ -81,6 +60,64 @@ export default function Welcome() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
+      {/* ── Sign-in loading overlay ─────────────────────────────────────────
+          Shown for the full duration of handleSignInAndAdvance() — from the
+          moment the user clicks "Continue with Google" until signInGoogle()
+          resolves (success or error). Sits above everything else via z-50.
+          The Google popup still opens in front of this at the OS level, but
+          our overlay ensures our own page looks intentional, not abandoned.
+      ──────────────────────────────────────────────────────────────────── */}
+      {signingIn && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-background/95 backdrop-blur-sm">
+          {/* Glows */}
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--electric)] opacity-10 blur-[120px]" />
+          <div className="pointer-events-none absolute left-1/2 top-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--neon)] opacity-10 blur-[80px]" />
+
+          {/* Spinning logo ring */}
+          <div className="relative">
+            {/* Outer spinning ring */}
+            <svg
+              className="absolute inset-0 -m-3 animate-spin"
+              style={{ animationDuration: "2s" }}
+              viewBox="0 0 80 80"
+              width={80}
+              height={80}
+            >
+              <circle
+                cx="40" cy="40" r="36"
+                fill="none"
+                stroke="url(#spin-grad)"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeDasharray="56 170"
+              />
+              <defs>
+                <linearGradient id="spin-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="var(--electric)" />
+                  <stop offset="100%" stopColor="var(--neon)" />
+                </linearGradient>
+              </defs>
+            </svg>
+
+            {/* Logo icon in the centre */}
+            <div className="grid h-[56px] w-[56px] place-items-center rounded-2xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_40px_var(--electric)]">
+              <Apple className="h-7 w-7" />
+            </div>
+          </div>
+
+          {/* Text */}
+          <div className="text-center">
+            <p className="font-display text-lg font-semibold tracking-tight text-foreground">
+              Signing you in…
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Complete the Google prompt to continue
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Page background glows ────────────────────────────────────────── */}
       <div className="pointer-events-none absolute -left-20 -top-20 h-[500px] w-[500px] rounded-full bg-[var(--electric)] opacity-20 blur-[140px]" />
       <div className="pointer-events-none absolute -bottom-32 -right-16 h-[420px] w-[420px] rounded-full bg-[var(--neon)] opacity-20 blur-[140px]" />
 
@@ -111,7 +148,7 @@ export default function Welcome() {
               className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-border bg-[var(--surface-elevated)] px-5 py-4 font-medium transition hover:bg-[var(--surface)] hover:shadow-[0_0_24px_var(--electric)] disabled:opacity-60"
             >
               <GoogleIcon />
-              <span>{signingIn ? "Signing in…" : "Continue with Google"}</span>
+              <span>Continue with Google</span>
               <ArrowRight className="ml-auto h-4 w-4 transition group-hover:translate-x-1" />
             </button>
 

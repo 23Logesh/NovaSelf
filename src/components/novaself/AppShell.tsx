@@ -25,19 +25,15 @@ const moreNav = [
 ] as const;
 
 export function AppShell() {
-  const { settings, updateSettings, profile, sheetLoadWarning, clearSheetLoadWarning } = useApp();
+  const { settings, updateSettings, profile, googleAccount, sheetLoadWarning, clearSheetLoadWarning } = useApp();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
 
-  // FR-37: AI Chat only appears in navigation when an Ollama URL is configured.
   const aiChatAvailable = settings.ollamaUrl.trim().length > 0;
-
-  // Is any moreNav item the current active route? Used to highlight the More button.
   const moreNavActive = moreNav.some((item) => pathname.startsWith(item.to));
-
   const visibleMoreNav = moreNav.filter(
-    (item) => !("gated" in item && item.gated) || aiChatAvailable,
+    (item) => !(("gated" in item) && item.gated) || aiChatAvailable,
   );
 
   function handleMoreNavClick(to: string) {
@@ -49,19 +45,30 @@ export function AppShell() {
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
-          <Link to="/dashboard" className="flex items-center gap-2">
-            <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_24px_var(--electric)]">
+          <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_24px_var(--electric)]">
               <Apple className="h-5 w-5" />
             </div>
-            <div className="flex flex-col leading-tight">
+            <div className="flex min-w-0 flex-col leading-tight">
               <span className="font-display text-lg font-bold tracking-tight">NovaSelf</span>
-              <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{profile.name}</span>
+              <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                {profile.name || "—"}
+              </span>
+              {/* Google account email — shown when signed in, truncated to avoid overflow */}
+              {googleAccount?.email && (
+                <span
+                  className="max-w-[160px] truncate text-[9px] leading-tight text-muted-foreground/60"
+                  title={googleAccount.email}
+                >
+                  {googleAccount.email}
+                </span>
+              )}
             </div>
           </Link>
 
           <nav className="hidden items-center gap-1 lg:flex">
             {[...nav, ...moreNav]
-              .filter((item) => !("gated" in item && item.gated) || aiChatAvailable)
+              .filter((item) => !(("gated" in item) && item.gated) || aiChatAvailable)
               .map((item) => {
                 const Icon = item.icon;
                 const active = pathname.startsWith(item.to);
@@ -84,7 +91,7 @@ export function AppShell() {
 
           <button
             onClick={() => updateSettings({ theme: settings.theme === "dark" ? "light" : "dark" })}
-            className="grid h-9 w-9 place-items-center rounded-full border border-border bg-[var(--surface)] text-muted-foreground transition hover:text-foreground"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-[var(--surface)] text-muted-foreground transition hover:text-foreground"
             aria-label="Toggle theme"
           >
             {settings.theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -93,7 +100,6 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 lg:pb-12">
-        {/* Sheet load warning banner — shown when an existing sheet returned empty on sign-in */}
         {sheetLoadWarning && (
           <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -130,7 +136,6 @@ export function AppShell() {
             );
           })}
 
-          {/* More button — opens the bottom sheet */}
           <button
             onClick={() => setMoreOpen(true)}
             className={`flex flex-col items-center gap-1 rounded-lg py-2 text-[10px] transition ${
@@ -151,16 +156,12 @@ export function AppShell() {
       {/* ── More bottom sheet (mobile only) ── */}
       {moreOpen && (
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
             onClick={() => setMoreOpen(false)}
             aria-hidden="true"
           />
-
-          {/* Sheet panel */}
           <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-2xl border-t border-border/60 bg-background pb-safe lg:hidden">
-            {/* Handle */}
             <div className="flex items-center justify-between px-5 pb-2 pt-4">
               <span className="text-sm font-semibold text-foreground">More</span>
               <button
@@ -171,8 +172,6 @@ export function AppShell() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-
-            {/* Nav items in a 3-column grid */}
             <div className="grid grid-cols-3 gap-2 px-4 pb-8 pt-2">
               {visibleMoreNav.map((item) => {
                 const Icon = item.icon;
@@ -187,9 +186,7 @@ export function AppShell() {
                         : "bg-[var(--surface)] text-muted-foreground hover:bg-muted hover:text-foreground"
                     }`}
                   >
-                    <Icon
-                      className={`h-6 w-6 ${active ? "drop-shadow-[0_0_6px_var(--electric)]" : ""}`}
-                    />
+                    <Icon className={`h-6 w-6 ${active ? "drop-shadow-[0_0_6px_var(--electric)]" : ""}`} />
                     <span>{item.label}</span>
                   </button>
                 );

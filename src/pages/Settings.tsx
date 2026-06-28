@@ -14,6 +14,7 @@ export default function Settings() {
     settings, updateSettings, toggleNutrient,
     addCustomNutrient, removeCustomNutrient, toggleCustomNutrient,
     profile, saveProfile,
+    googleAccount,
     signOut, resetAll, clearOllamaUrl,
   } = useApp();
   const navigate = useNavigate();
@@ -24,7 +25,6 @@ export default function Settings() {
     const name = customDraft.name.trim();
     const unit = customDraft.unit.trim() || "g";
     if (!name) return;
-    // Guard against duplicate names (case-insensitive).
     if (settings.customNutrients.some((n) => n.name.toLowerCase() === name.toLowerCase())) return;
     addCustomNutrient({ id: uid(), name, unit });
     setCustomDraft({ name: "", unit: "g" });
@@ -93,8 +93,6 @@ export default function Settings() {
           Define your own fields (e.g. Creatine, Collagen, Glutamine) — they'll appear alongside built-in nutrients
           in the food log entry form.
         </p>
-
-        {/* Add form */}
         <div className="flex gap-2">
           <input
             placeholder="Name (e.g. Creatine)"
@@ -118,8 +116,6 @@ export default function Settings() {
             <Plus className="h-4 w-4" /> Add
           </button>
         </div>
-
-        {/* Existing custom nutrients — toggle + delete */}
         {settings.customNutrients.length > 0 && (
           <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
             {settings.customNutrients.map((n) => {
@@ -157,9 +153,8 @@ export default function Settings() {
             })}
           </div>
         )}
-
         {settings.customNutrients.length === 0 && (
-          <p className="mt-3 text-xs text-muted-foreground italic">No custom nutrients yet.</p>
+          <p className="mt-3 text-xs italic text-muted-foreground">No custom nutrients yet.</p>
         )}
       </NCard>
 
@@ -225,6 +220,16 @@ export default function Settings() {
       {/* Danger zone */}
       <NCard>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-destructive">Danger zone</h3>
+
+        {/* Signed-in account indicator — above sign-out so it's clear what will be signed out */}
+        {googleAccount && (
+          <div className="mb-3 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Signed in as</p>
+            <p className="mt-0.5 truncate text-sm font-medium text-foreground">{googleAccount.name}</p>
+            <p className="truncate text-xs text-muted-foreground">{googleAccount.email}</p>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => { if (confirm("Reset all local data?")) { resetAll(); navigate("/welcome"); } }}

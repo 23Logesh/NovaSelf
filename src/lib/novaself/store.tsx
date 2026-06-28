@@ -20,9 +20,16 @@ import {
 
 export type { SheetHandle };
 
+export interface GoogleAccount {
+  email: string;
+  name: string;
+}
+
 export interface AppState {
   signedIn: boolean;
   onboarded: boolean;
+  /** Google profile from the most recent successful sign-in. Null when signed out. */
+  googleAccount: GoogleAccount | null;
   profile: Profile;
   settings: AppSettings;
   days: DayLog[];
@@ -43,7 +50,6 @@ interface AppActions {
   saveProfile: (p: Partial<Profile>) => void;
   updateSettings: (s: Partial<AppSettings>) => void;
   toggleNutrient: (key: keyof AppSettings["enabledNutrients"]) => void;
-  // Custom nutrient actions
   addCustomNutrient: (n: CustomNutrient) => void;
   removeCustomNutrient: (id: string) => void;
   toggleCustomNutrient: (id: string) => void;
@@ -84,14 +90,11 @@ function loadInitial(): AppState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      // Merge defaultSettings so new fields (customNutrients, enabledCustomNutrients)
-      // are present even for users whose stored settings pre-date this feature.
-      const merged = {
+      return {
         ...baseState(),
         ...parsed,
         settings: { ...defaultSettings, ...parsed.settings },
       };
-      return merged;
     }
   } catch {}
   return baseState();
@@ -118,6 +121,7 @@ function baseState(): AppState {
   return {
     signedIn: false,
     onboarded: false,
+    googleAccount: null,
     profile: defaultProfile,
     settings: defaultSettings,
     days: defaultDays,
@@ -181,6 +185,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const authResult = await signInWithGoogle();
         _memAccessToken = authResult.accessToken;
 
+        // Capture Google account identity immediately — stored in AppState
+        // so AppShell and Settings can display it without any extra fetch.
+        const googleAccount: GoogleAccount = {
+          email: authResult.email,
+          name: authResult.name,
+        };
+
         const { handle, isNewlyCreated } = await ensureUserSheet(authResult.accessToken);
         _memSheetHandle = handle;
         setSheetHandle(handle);
@@ -189,9 +200,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (isNewlyCreated) {
           update({
             ...emptyUserState(),
-            // Carry over device-level preferences (theme, nutrient toggles,
-            // custom nutrients, ollamaUrl) — these are not personal health data.
             settings: state.settings,
+            googleAccount,
             signedIn: true,
             onboarded: false,
           });
@@ -211,9 +221,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (loadReturnedData) {
           update({
             ...(sheetState ?? {}),
-            // Merge settings so new fields don't disappear for returning users
-            // whose Sheet settings were saved before customNutrients existed.
             settings: { ...defaultSettings, ...(sheetState?.settings ?? {}) },
+            googleAccount,
             signedIn: true,
             onboarded: true,
           });
@@ -226,7 +235,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             "Couldn't load your data from Google Sheets right now (network issue). " +
             "Your local data is safe — tap Sync in Settings to retry.",
           );
-          update({ signedIn: true });
+          update({ googleAccount, signedIn: true });
         }
       },
 
@@ -237,7 +246,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSheetHandle(null);
         storeSheetHandle(null);
         setSheetLoadWarning(null);
-        update({ signedIn: false, onboarded: false });
+        update({ signedIn: false, onboarded: false, googleAccount: null });
       },
 
       saveProfile: (p) =>
@@ -264,7 +273,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           settings: {
             ...s.settings,
             customNutrients: [...s.settings.customNutrients, n],
-            // Default new nutrients to enabled so they immediately appear in the log.
             enabledCustomNutrients: { ...s.settings.enabledCustomNutrients, [n.id]: true },
           },
         })),
