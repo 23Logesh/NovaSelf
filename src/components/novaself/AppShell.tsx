@@ -25,7 +25,11 @@ const moreNav = [
 ] as const;
 
 export function AppShell() {
-  const { settings, updateSettings, profile, googleAccount, sheetLoadWarning, clearSheetLoadWarning } = useApp();
+  const {
+    settings, updateSettings, profile, googleAccount,
+    sheetLoadWarning, clearSheetLoadWarning,
+    sessionExpired, reconnectGoogle,
+  } = useApp();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
@@ -100,6 +104,21 @@ export function AppShell() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 lg:pb-12">
+        {sessionExpired && (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex-1">
+              Your session expired — your changes are safe locally.
+              Tap <strong>Reconnect</strong> to sync them to Google Sheets.
+            </span>
+            <button
+              onClick={reconnectGoogle}
+              className="shrink-0 rounded-md border border-red-400/40 bg-red-500/20 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/30"
+            >
+              Reconnect
+            </button>
+          </div>
+        )}
         {sheetLoadWarning && (
           <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />

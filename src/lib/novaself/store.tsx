@@ -1,5 +1,5 @@
 import {
-  createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
+  createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, type ReactNode,
 } from "react";
 import type {
   AppSettings, Book, ChatMessage, CustomNutrient, DayLog, DietPhase, MessItem,
@@ -12,7 +12,7 @@ import {
   defaultReading, defaultSettings, defaultSkinLogs, defaultSupplements, defaultWorkoutPhases,
   emptyUserState,
 } from "./mockData";
-import { signInWithGoogle, signOutOfGoogle, getValidAccessToken } from "./googleAuth";
+import { signInWithGoogle, signOutOfGoogle } from "./googleAuth";
 import {
   ensureUserSheet, loadStateFromSheet, saveStateToSheet, syncToSheet as _syncToSheet,
   type SheetHandle,
@@ -47,6 +47,7 @@ export interface AppState {
 interface AppActions {
   signInGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  reconnectGoogle: () => Promise<void>; // Re-auth from user gesture; flushes pending changes
   saveProfile: (p: Partial<Profile>) => void;
   updateSettings: (s: Partial<AppSettings>) => void;
   toggleNutrient: (key: keyof AppSettings["enabledNutrients"]) => void;
@@ -73,6 +74,8 @@ interface AppActions {
   sheetHandle: SheetHandle | null;
   sheetLoadWarning: string | null;
   clearSheetLoadWarning: () => void;
+  /** True when the Google session has expired and the user needs to reconnect. */
+  sessionExpired: boolean;
 }
 
 type Ctx = AppState & AppActions;
@@ -81,6 +84,13 @@ const AppCtx = createContext<Ctx | null>(null);
 const STORAGE_KEY = "novaself.v1";
 const SHEET_HANDLE_KEY = "novaself.sheetHandle";
 
+// ---------------------------------------------------------------------------
+// _memAccessToken: the ONLY place the current access token lives at runtime.
+// It is a module-level variable (in-memory only, never persisted).
+// After a page reload it is null — this is expected. The auto-save effect
+// checks this directly and will NOT call getValidAccessToken() or trigger any
+// interactive popup. Instead it sets sessionExpired so the user is informed.
+// ---------------------------------------------------------------------------
 let _memAccessToken: string | null = null;
 let _memSheetHandle: SheetHandle | null = null;
 
@@ -141,36 +151,116 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadInitial());
   const [sheetHandle, setSheetHandle] = useState<SheetHandle | null>(() => loadStoredSheetHandle());
   const [sheetLoadWarning, setSheetLoadWarning] = useState<string | null>(null);
+  // sessionExpired: true when we have a sheet handle but the in-memory token
+  // is gone (page reload or natural expiry). Cleared after successful reconnect.
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Keep a stable ref to current state so the reconnect flush always sends latest data.
+  const stateRef = useRef<AppState>(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
 
+  // ---------------------------------------------------------------------------
+  // Persist to localStorage on every state change (always reliable).
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (typeof window === "undefined") return;
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      console.log("[store] ✓ Saved to localStorage");
+    } catch (e) {
+      console.error("[store] ✗ localStorage save failed:", e);
+    }
   }, [state]);
 
+  // ---------------------------------------------------------------------------
+  // Debounced auto-save to Google Sheets.
+  //
+  // DESIGN: This effect NEVER calls getValidAccessToken() and NEVER triggers
+  // an interactive OAuth popup. It only uses _memAccessToken (in-memory).
+  // If the token is absent (page reload, expiry), it sets sessionExpired=true
+  // so a visible banner appears. localStorage has already saved everything.
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!state.signedIn || !sheetHandle) return;
+
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
     saveTimerRef.current = setTimeout(async () => {
+      console.log("[store] Auto-save: debounce fired, checking token…");
+
+      // CRITICAL: check in-memory token directly. Never call getValidAccessToken()
+      // here — that can trigger an interactive popup automatically.
+      if (!_memAccessToken) {
+        console.warn(
+          "[store] Auto-save: no in-memory token (session expired or page reloaded). " +
+          "All changes are safe in localStorage. Showing reconnect banner.",
+        );
+        setSessionExpired(true);
+        return;
+      }
+
+      console.log("[store] Auto-save: token present, attempting Sheet save…");
       try {
-        const token = _memAccessToken ?? await getValidAccessToken();
-        await saveStateToSheet(sheetHandle, token, state);
+        await saveStateToSheet(sheetHandle, _memAccessToken, state);
+        console.log("[store] ✓ Auto-save to Sheet succeeded");
+        // Clear the expired flag if it was set from a prior failed attempt
+        // that has since been resolved (reconnect sets the token, then flushes,
+        // then state changes again — we clear here on success).
+        setSessionExpired(false);
       } catch (err) {
-        console.warn("[store] Auto-save to Sheets failed:", err);
+        console.error("[store] ✗ Auto-save to Sheet failed (token may have expired mid-session):", err);
+        // Invalidate the in-memory token so next attempt shows the banner
+        // rather than hammering a bad token repeatedly.
+        _memAccessToken = null;
+        setSessionExpired(true);
       }
     }, 2500);
+
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [state, sheetHandle]);
 
+  // ---------------------------------------------------------------------------
+  // Theme sync
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
     root.classList.toggle("light", state.settings.theme === "light");
     root.classList.toggle("dark", state.settings.theme === "dark");
   }, [state.settings.theme]);
+
+  // ---------------------------------------------------------------------------
+  // reconnectGoogle: called ONLY from an explicit user button press.
+  // Runs an interactive OAuth flow, stores the fresh token, then immediately
+  // flushes the current state to the Sheet so nothing buffered in localStorage
+  // is lost.
+  // ---------------------------------------------------------------------------
+  const reconnectGoogle = useCallback(async () => {
+    console.log("[store] reconnectGoogle: starting interactive re-auth…");
+    try {
+      const authResult = await signInWithGoogle();
+      _memAccessToken = authResult.accessToken;
+      console.log("[store] reconnectGoogle: ✓ fresh token obtained");
+
+      const currentHandle = sheetHandle;
+      if (!currentHandle) {
+        console.warn("[store] reconnectGoogle: no sheet handle — user must sign in fully");
+        return;
+      }
+
+      console.log("[store] reconnectGoogle: flushing buffered state to Sheet…");
+      await saveStateToSheet(currentHandle, _memAccessToken, stateRef.current);
+      console.log("[store] reconnectGoogle: ✓ flush complete");
+
+      setSessionExpired(false);
+    } catch (err) {
+      console.error("[store] reconnectGoogle: ✗ re-auth or flush failed:", err);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetHandle]);
 
   const value = useMemo<Ctx>(() => {
     const update = (patch: Partial<AppState>) => setState((s) => ({ ...s, ...patch }));
@@ -179,14 +269,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...state,
       sheetHandle,
       sheetLoadWarning,
+      sessionExpired,
       clearSheetLoadWarning: () => setSheetLoadWarning(null),
+      reconnectGoogle,
 
       signInGoogle: async () => {
+        console.log("[store] signInGoogle: starting interactive sign-in…");
         const authResult = await signInWithGoogle();
         _memAccessToken = authResult.accessToken;
+        console.log("[store] signInGoogle: ✓ token obtained");
 
-        // Capture Google account identity immediately — stored in AppState
-        // so AppShell and Settings can display it without any extra fetch.
         const googleAccount: GoogleAccount = {
           email: authResult.email,
           name: authResult.name,
@@ -196,6 +288,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         _memSheetHandle = handle;
         setSheetHandle(handle);
         storeSheetHandle(handle);
+        setSessionExpired(false);
+        console.log("[store] signInGoogle: sheet handle stored, isNewlyCreated=", isNewlyCreated);
 
         if (isNewlyCreated) {
           update({
@@ -210,9 +304,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         let sheetState: Partial<AppState> | null = null;
         try {
+          console.log("[store] signInGoogle: loading state from Sheet…");
           sheetState = await loadStateFromSheet(handle, authResult.accessToken);
+          console.log("[store] signInGoogle: ✓ Sheet state loaded");
         } catch (err) {
-          console.error("[store] signInGoogle: loadStateFromSheet threw on existing sheet:", err);
+          console.error("[store] signInGoogle: ✗ loadStateFromSheet threw:", err);
         }
 
         const loadReturnedData =
@@ -229,7 +325,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else {
           console.warn(
             "[store] signInGoogle: existing Sheet returned empty data. " +
-            "This is likely a transient fetch error. Local state preserved.",
+            "Likely a transient fetch error. Local state preserved.",
           );
           setSheetLoadWarning(
             "Couldn't load your data from Google Sheets right now (network issue). " +
@@ -240,12 +336,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       signOut: async () => {
+        console.log("[store] signOut");
         await signOutOfGoogle();
         _memAccessToken = null;
         _memSheetHandle = null;
         setSheetHandle(null);
         storeSheetHandle(null);
         setSheetLoadWarning(null);
+        setSessionExpired(false);
         update({ signedIn: false, onboarded: false, googleAccount: null });
       },
 
@@ -383,46 +481,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }),
 
       resetAll: () => {
+        console.log("[store] resetAll");
         _memAccessToken = null;
         _memSheetHandle = null;
         setSheetHandle(null);
         storeSheetHandle(null);
         setSheetLoadWarning(null);
+        setSessionExpired(false);
         setState(baseState());
       },
 
+      // saveData, loadData, syncToSheet: also NEVER call getValidAccessToken().
+      // They check _memAccessToken directly and return early with a clear log
+      // if it's absent. The user must reconnect via the banner first.
+
       saveData: async () => {
-        if (!sheetHandle) return;
+        if (!sheetHandle) { console.warn("[store] saveData: no sheet handle, skipping"); return; }
+        console.log("[store] saveData: checking in-memory token…");
+        if (!_memAccessToken) {
+          console.warn("[store] saveData: no token — session expired. Use reconnect.");
+          setSessionExpired(true);
+          return;
+        }
+        console.log("[store] saveData: attempting Sheet save…");
         try {
-          const token = _memAccessToken ?? await getValidAccessToken();
-          await saveStateToSheet(sheetHandle, token, state);
+          await saveStateToSheet(sheetHandle, _memAccessToken, state);
+          console.log("[store] ✓ saveData: Sheet save succeeded");
         } catch (err) {
-          console.error("[store] saveData failed:", err);
+          console.error("[store] ✗ saveData: Sheet save failed:", err);
+          _memAccessToken = null;
+          setSessionExpired(true);
         }
       },
 
       loadData: async () => {
-        if (!sheetHandle) return;
+        if (!sheetHandle) { console.warn("[store] loadData: no sheet handle, skipping"); return; }
+        console.log("[store] loadData: checking in-memory token…");
+        if (!_memAccessToken) {
+          console.warn("[store] loadData: no token — session expired. Use reconnect.");
+          setSessionExpired(true);
+          return;
+        }
+        console.log("[store] loadData: loading from Sheet…");
         try {
-          const token = _memAccessToken ?? await getValidAccessToken();
-          const sheetState = await loadStateFromSheet(sheetHandle, token);
-          if (sheetState) update(sheetState);
+          const sheetState = await loadStateFromSheet(sheetHandle, _memAccessToken);
+          if (sheetState) {
+            update(sheetState);
+            console.log("[store] ✓ loadData: Sheet state loaded");
+          }
         } catch (err) {
-          console.error("[store] loadData failed:", err);
+          console.error("[store] ✗ loadData: failed:", err);
         }
       },
 
       syncToSheet: async () => {
-        if (!sheetHandle) return;
+        if (!sheetHandle) { console.warn("[store] syncToSheet: no sheet handle, skipping"); return; }
+        console.log("[store] syncToSheet: checking in-memory token…");
+        if (!_memAccessToken) {
+          console.warn("[store] syncToSheet: no token — session expired. Use reconnect.");
+          setSessionExpired(true);
+          return;
+        }
+        console.log("[store] syncToSheet: syncing…");
         try {
-          const token = _memAccessToken ?? await getValidAccessToken();
-          await _syncToSheet(sheetHandle, token, state);
+          await _syncToSheet(sheetHandle, _memAccessToken, state);
+          console.log("[store] ✓ syncToSheet: succeeded");
         } catch (err) {
-          console.error("[store] syncToSheet failed:", err);
+          console.error("[store] ✗ syncToSheet: failed:", err);
+          _memAccessToken = null;
+          setSessionExpired(true);
         }
       },
     };
-  }, [state, sheetHandle, sheetLoadWarning]);
+  }, [state, sheetHandle, sheetLoadWarning, sessionExpired, reconnectGoogle]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

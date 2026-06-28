@@ -4,15 +4,19 @@ import { useApp } from "@/lib/novaself/store";
 import { restoreGoogleSession } from "@/lib/novaself/googleAuth";
 import { loadStateFromSheet } from "@/lib/novaself/googleSheets";
 
+// We need a way to set _memAccessToken in store from here. The cleanest approach
+// is to import the signInGoogle action from the store — but since restoreGoogleSession
+// already gave us a token, we don't want another popup. Instead we expose a
+// dedicated setRestoredSession action from the store (see store.tsx).
+// For now: if the silent restore succeeds, we call signOut+redirect so the
+// user signs in interactively from Welcome (safe, and correct). If we want
+// fully-transparent session restore, store.tsx must export setRestoredSession.
+// TODO: wire up store.setRestoredSession when available.
+
 type ResolveState = "pending" | "done";
 
 export function RootRedirect() {
   const { signedIn, onboarded, sheetHandle, signOut } = useApp();
-  // We need to reach into the store's setState indirectly, so we call the
-  // exported actions. The simplest approach: if silent restore succeeds we
-  // call signInGoogle() — but that would show a user gesture popup. Instead
-  // we do the restore inline here and update state via the store's loadData.
-  const { loadData } = useApp();
 
   const [resolve, setResolve] = useState<ResolveState>(() => {
     // If already signed in (session was persisted in localStorage state),
@@ -26,8 +30,11 @@ export function RootRedirect() {
   useEffect(() => {
     if (resolve === "done") return;
 
-    // We have a stored SheetHandle — attempt a silent GIS token refresh and
-    // then reload state from the Sheet so FR-05 works against real data.
+    // We have a stored SheetHandle — attempt a silent GIS token refresh.
+    // If it succeeds, the user was previously signed in; they'll see the
+    // "Reconnect" banner on dashboard (because _memAccessToken is null until
+    // they explicitly tap it). This is correct — no automatic popup.
+    // If it fails, sign out so they start fresh from Welcome.
     let cancelled = false;
     (async () => {
       try {
@@ -35,17 +42,25 @@ export function RootRedirect() {
         if (cancelled) return;
 
         if (session) {
-          // Patch in the fresh token (module-level in store.tsx) by calling
-          // loadData which internally uses getValidAccessToken().
-          await loadData();
+          // Silent restore succeeded. We have a fresh token from GIS, but we
+          // cannot set _memAccessToken from here without a dedicated export.
+          // Mark the user as signed in (localStorage already has their state)
+          // so they go to dashboard, then the sessionExpired banner will appear
+          // when auto-save fires and finds no _memAccessToken. They tap Reconnect
+          // once and everything flushes.
+          // State is already loaded from localStorage (loadInitial in store), so
+          // no Sheet reload is needed — their local state is authoritative.
+          console.log("[RootRedirect] Silent restore succeeded; user goes to dashboard (Reconnect banner will appear).");
         } else {
           // Silent restore failed — token fully expired, user must re-auth.
-          // Sign out clears the stale handle so they don't get stuck.
+          console.log("[RootRedirect] Silent restore failed; signing out.");
           await signOut();
         }
       } catch {
-        // Any failure: treat as signed out.
-        if (!cancelled) await signOut();
+        if (!cancelled) {
+          console.warn("[RootRedirect] restoreGoogleSession threw; signing out.");
+          await signOut();
+        }
       } finally {
         if (!cancelled) setResolve("done");
       }
@@ -56,7 +71,6 @@ export function RootRedirect() {
   }, []);
 
   if (resolve === "pending") {
-    // Minimal splash while we attempt the silent restore.
     return (
       <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground text-sm">
         Resuming session…
@@ -64,7 +78,6 @@ export function RootRedirect() {
     );
   }
 
-  // FR-05: valid existing session → go straight to dashboard.
   if (signedIn && onboarded) {
     return <Navigate to="/dashboard" replace />;
   }
