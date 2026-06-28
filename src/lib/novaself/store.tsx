@@ -2,8 +2,8 @@ import {
   createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode,
 } from "react";
 import type {
-  AppSettings, Book, ChatMessage, DayLog, DietPhase, MessItem, ReadingSession,
-  SkinLog, Supplement, SupplementIntake, WorkoutPhase,
+  AppSettings, Book, ChatMessage, CustomNutrient, DayLog, DietPhase, MessItem,
+  ReadingSession, SkinLog, Supplement, SupplementIntake, WorkoutPhase,
 } from "./types";
 import type { Profile } from "./calculations";
 import { isoDate } from "./calculations";
@@ -43,6 +43,10 @@ interface AppActions {
   saveProfile: (p: Partial<Profile>) => void;
   updateSettings: (s: Partial<AppSettings>) => void;
   toggleNutrient: (key: keyof AppSettings["enabledNutrients"]) => void;
+  // Custom nutrient actions
+  addCustomNutrient: (n: CustomNutrient) => void;
+  removeCustomNutrient: (id: string) => void;
+  toggleCustomNutrient: (id: string) => void;
   clearOllamaUrl: () => void;
   upsertDay: (day: DayLog) => void;
   getDay: (date: string) => DayLog;
@@ -78,7 +82,17 @@ function loadInitial(): AppState {
   if (typeof window === "undefined") return baseState();
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...baseState(), ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Merge defaultSettings so new fields (customNutrients, enabledCustomNutrients)
+      // are present even for users whose stored settings pre-date this feature.
+      const merged = {
+        ...baseState(),
+        ...parsed,
+        settings: { ...defaultSettings, ...parsed.settings },
+      };
+      return merged;
+    }
   } catch {}
   return baseState();
 }
@@ -175,6 +189,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (isNewlyCreated) {
           update({
             ...emptyUserState(),
+            // Carry over device-level preferences (theme, nutrient toggles,
+            // custom nutrients, ollamaUrl) — these are not personal health data.
             settings: state.settings,
             signedIn: true,
             onboarded: false,
@@ -195,6 +211,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (loadReturnedData) {
           update({
             ...(sheetState ?? {}),
+            // Merge settings so new fields don't disappear for returning users
+            // whose Sheet settings were saved before customNutrients existed.
+            settings: { ...defaultSettings, ...(sheetState?.settings ?? {}) },
             signedIn: true,
             onboarded: true,
           });
@@ -235,6 +254,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
             enabledNutrients: {
               ...s.settings.enabledNutrients,
               [key]: !s.settings.enabledNutrients[key],
+            },
+          },
+        })),
+
+      addCustomNutrient: (n) =>
+        setState((s) => ({
+          ...s,
+          settings: {
+            ...s.settings,
+            customNutrients: [...s.settings.customNutrients, n],
+            // Default new nutrients to enabled so they immediately appear in the log.
+            enabledCustomNutrients: { ...s.settings.enabledCustomNutrients, [n.id]: true },
+          },
+        })),
+
+      removeCustomNutrient: (id) =>
+        setState((s) => {
+          const { [id]: _removed, ...restEnabled } = s.settings.enabledCustomNutrients;
+          return {
+            ...s,
+            settings: {
+              ...s.settings,
+              customNutrients: s.settings.customNutrients.filter((n) => n.id !== id),
+              enabledCustomNutrients: restEnabled,
+            },
+          };
+        }),
+
+      toggleCustomNutrient: (id) =>
+        setState((s) => ({
+          ...s,
+          settings: {
+            ...s.settings,
+            enabledCustomNutrients: {
+              ...s.settings.enabledCustomNutrients,
+              [id]: !s.settings.enabledCustomNutrients[id],
             },
           },
         })),

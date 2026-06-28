@@ -20,16 +20,27 @@ export const OPTIONAL_NUTRIENTS: { key: OptionalNutrient; label: string; unit: s
   { key: "omega3", label: "Omega-3", unit: "g" },
 ];
 
+/** A user-defined nutrient (name + unit). Stored in AppSettings, not hardcoded. */
+export interface CustomNutrient {
+  /** Stable ID — used as the key in enabledCustomNutrients and FoodEntry.customFields. */
+  id: string;
+  name: string;
+  unit: string;
+}
+
 export interface FoodEntry {
   id: string;
   name: string;
   calories: number;
   protein: number;
   fiber: number;
+  // Built-in optional nutrients
   carbs?: number; fat?: number; satFat?: number; sugar?: number;
   sodium?: number; potassium?: number; calcium?: number; iron?: number;
   vitD?: number; vitB12?: number; zinc?: number; magnesium?: number;
   cholesterol?: number; omega3?: number;
+  // User-defined custom nutrients — keyed by CustomNutrient.id
+  customFields?: Record<string, number>;
 }
 
 export interface WaterEntry { id: string; ml: number }
@@ -81,6 +92,9 @@ export interface ChatMessage { id: string; role: "user" | "assistant"; content: 
 export interface AppSettings {
   theme: "dark" | "light";
   enabledNutrients: Record<OptionalNutrient, boolean>;
-  // googleClientId removed — it's now GOOGLE_CLIENT_ID constant in googleAuth.ts
+  /** User-defined custom nutrients (the definitions list). */
+  customNutrients: CustomNutrient[];
+  /** Per-custom-nutrient enable/disable toggle — keyed by CustomNutrient.id. */
+  enabledCustomNutrients: Record<string, boolean>;
   ollamaUrl: string;
 }

@@ -1,8 +1,11 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Droplets, Dumbbell, Salad, Plus, X, Scale } from "lucide-react";
+import { Droplets, Dumbbell, Salad, Plus, X, Scale, Pill, Sparkles, BookOpen } from "lucide-react";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
+import { SupplementIntakePanel } from "@/components/novaself/SupplementIntakePanel";
+import { SkinCheckIn } from "@/components/novaself/SkinCheckIn";
+import { ReadingSessionForm } from "@/components/novaself/ReadingSessionForm";
 import { useApp, today } from "@/lib/novaself/store";
 import { caloriesBurned, WORKOUT_METS, workoutLabel } from "@/lib/novaself/calculations";
 import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
@@ -10,12 +13,24 @@ import type { FoodEntry, WorkoutEntry, DayLog } from "@/lib/novaself/types";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
+type Tab = "food" | "water" | "workout" | "weight" | "supplements" | "skin" | "books";
+
+const TABS: [Tab, string, React.ComponentType<{ className?: string }>][] = [
+  ["food", "Food", Salad],
+  ["water", "Water", Droplets],
+  ["workout", "Workout", Dumbbell],
+  ["weight", "Weight", Scale],
+  ["supplements", "Supps", Pill],
+  ["skin", "Skin", Sparkles],
+  ["books", "Books", BookOpen],
+];
+
 export default function LogPage() {
   const [params, setParams] = useSearchParams();
   const date = params.get("date") || today();
   const { getDay, upsertDay, logWeight, settings, profile } = useApp();
   const day = getDay(date);
-  const [tab, setTab] = useState<"food" | "water" | "workout" | "weight">("food");
+  const [tab, setTab] = useState<Tab>("food");
 
   function update(patch: Partial<DayLog>) {
     upsertDay({ ...day, ...patch });
@@ -23,37 +38,90 @@ export default function LogPage() {
 
   return (
     <div className="space-y-6">
-      <SectionHeader eyebrow="Daily log" title={date === today() ? "Today" : "Editing past day"} description="Editing any past date overwrites that date's entry — no duplicates." action={
-        <input type="date" value={date} onChange={(e) => setParams({ date: e.target.value })}
-          className="rounded-xl border border-border bg-[var(--surface)] px-3 py-2 text-sm" />
-      } />
+      <SectionHeader
+        eyebrow="Daily log"
+        title={date === today() ? "Today" : "Editing past day"}
+        description="Editing any past date overwrites that date's entry — no duplicates."
+        action={
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setParams({ date: e.target.value })}
+            className="rounded-xl border border-border bg-[var(--surface)] px-3 py-2 text-sm"
+          />
+        }
+      />
 
-      <div className="flex gap-2 rounded-full border border-border bg-[var(--surface)] p-1">
-        {([
-          ["food", "Food", Salad],
-          ["water", "Water", Droplets],
-          ["workout", "Workout", Dumbbell],
-          ["weight", "Weight", Scale],
-        ] as const).map(([k, label, Icon]) => (
-          <button key={k} onClick={() => setTab(k)}
-            className={`flex-1 flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-sm transition ${
-              tab === k ? "bg-[var(--electric)] text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)]" : "text-muted-foreground hover:text-foreground"
-            }`}>
-            <Icon className="h-4 w-4" /> {label}
-          </button>
-        ))}
+      {/* Tab bar — scrollable on mobile so all 7 fit */}
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max gap-1.5 rounded-full border border-border bg-[var(--surface)] p-1">
+          {TABS.map(([k, label, Icon]) => (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className={`flex items-center justify-center gap-1.5 rounded-full px-3 py-2 text-sm transition whitespace-nowrap ${
+                tab === k
+                  ? "bg-[var(--electric)] text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)]"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {tab === "food" && <FoodTab day={day} update={update} enabledNutrients={settings.enabledNutrients} />}
+      {tab === "food" && (
+        <FoodTab
+          day={day}
+          update={update}
+          enabledNutrients={settings.enabledNutrients}
+          customNutrients={settings.customNutrients}
+          enabledCustomNutrients={settings.enabledCustomNutrients}
+        />
+      )}
       {tab === "water" && <WaterTab day={day} update={update} />}
       {tab === "workout" && <WorkoutTab day={day} update={update} weightKg={profile.weightKg} />}
-      {tab === "weight" && <WeightTab date={date} currentWeightKg={day.weightKg ?? profile.weightKg} onSave={(kg) => logWeight(date, kg)} />}
+      {tab === "weight" && (
+        <WeightTab
+          date={date}
+          currentWeightKg={day.weightKg ?? profile.weightKg}
+          onSave={(kg) => logWeight(date, kg)}
+        />
+      )}
+      {tab === "supplements" && (
+        <NCard>
+          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Today's supplements</h3>
+          <SupplementIntakePanel />
+        </NCard>
+      )}
+      {tab === "skin" && <SkinCheckIn />}
+      {tab === "books" && <ReadingSessionForm />}
     </div>
   );
 }
 
-function FoodTab({ day, update, enabledNutrients }: { day: DayLog; update: (p: Partial<DayLog>) => void; enabledNutrients: Record<string, boolean> }) {
-  const enabled = OPTIONAL_NUTRIENTS.filter((n) => enabledNutrients[n.key]);
+// ---------------------------------------------------------------------------
+// FoodTab — updated to render custom nutrients alongside built-ins
+// ---------------------------------------------------------------------------
+function FoodTab({
+  day,
+  update,
+  enabledNutrients,
+  customNutrients,
+  enabledCustomNutrients,
+}: {
+  day: DayLog;
+  update: (p: Partial<DayLog>) => void;
+  enabledNutrients: Record<string, boolean>;
+  customNutrients: import("@/lib/novaself/types").CustomNutrient[];
+  enabledCustomNutrients: Record<string, boolean>;
+}) {
+  const enabledBuiltin = OPTIONAL_NUTRIENTS.filter((n) => enabledNutrients[n.key]);
+  const enabledCustom = customNutrients.filter((n) => enabledCustomNutrients[n.id] ?? true);
+  const hasOptional = enabledBuiltin.length > 0 || enabledCustom.length > 0;
+
   const blank: FoodEntry = { id: uid(), name: "", calories: 0, protein: 0, fiber: 0 };
   const [draft, setDraft] = useState<FoodEntry>(blank);
 
@@ -63,28 +131,61 @@ function FoodTab({ day, update, enabledNutrients }: { day: DayLog; update: (p: P
     setDraft({ ...blank, id: uid() });
   }
 
+  function setCustomField(id: string, value: number) {
+    setDraft((d) => ({
+      ...d,
+      customFields: { ...(d.customFields ?? {}), [id]: value },
+    }));
+  }
+
   return (
     <NCard>
       <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Add food</h3>
       <div className="space-y-3">
-        <input placeholder="Food name (e.g. Oats + banana)" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className={inputCls} />
+        <input
+          placeholder="Food name (e.g. Oats + banana)"
+          value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          className={inputCls}
+        />
         <div className="grid grid-cols-3 gap-2">
           <NumInput label="Calories" value={draft.calories} onChange={(v) => setDraft({ ...draft, calories: v })} />
           <NumInput label="Protein (g)" value={draft.protein} onChange={(v) => setDraft({ ...draft, protein: v })} />
           <NumInput label="Fiber (g)" value={draft.fiber} onChange={(v) => setDraft({ ...draft, fiber: v })} />
         </div>
-        {enabled.length > 0 && (
+
+        {hasOptional && (
           <details className="rounded-xl border border-border bg-[var(--surface-elevated)] p-3">
-            <summary className="cursor-pointer text-sm text-muted-foreground">Optional nutrients ({enabled.length})</summary>
+            <summary className="cursor-pointer text-sm text-muted-foreground">
+              Optional nutrients ({enabledBuiltin.length + enabledCustom.length})
+            </summary>
             <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
-              {enabled.map((n) => (
-                <NumInput key={n.key} label={`${n.label} (${n.unit})`} value={(draft as unknown as Record<string, number>)[n.key] ?? 0}
-                  onChange={(v) => setDraft({ ...draft, [n.key]: v })} />
+              {/* Built-in optional nutrients */}
+              {enabledBuiltin.map((n) => (
+                <NumInput
+                  key={n.key}
+                  label={`${n.label} (${n.unit})`}
+                  value={(draft as unknown as Record<string, number>)[n.key] ?? 0}
+                  onChange={(v) => setDraft({ ...draft, [n.key]: v })}
+                />
+              ))}
+              {/* User-defined custom nutrients */}
+              {enabledCustom.map((n) => (
+                <NumInput
+                  key={n.id}
+                  label={`${n.name} (${n.unit})`}
+                  value={draft.customFields?.[n.id] ?? 0}
+                  onChange={(v) => setCustomField(n.id, v)}
+                />
               ))}
             </div>
           </details>
         )}
-        <button onClick={add} className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 font-semibold text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)] transition hover:scale-[1.01]">
+
+        <button
+          onClick={add}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 font-semibold text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)] transition hover:scale-[1.01]"
+        >
           <Plus className="h-4 w-4" /> Add food
         </button>
       </div>
@@ -95,15 +196,36 @@ function FoodTab({ day, update, enabledNutrients }: { day: DayLog; update: (p: P
           <p className="py-6 text-center text-sm text-muted-foreground">Nothing yet — log your first meal.</p>
         ) : (
           <ul className="space-y-2">
-            {day.foods.map((f) => (
-              <li key={f.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface-elevated)] p-3">
-                <div>
-                  <div className="text-sm font-medium">{f.name}</div>
-                  <div className="text-xs text-muted-foreground tabular-nums">{f.calories} kcal · {f.protein}g protein · {f.fiber}g fiber</div>
-                </div>
-                <button onClick={() => update({ foods: day.foods.filter((x) => x.id !== f.id) })} className="text-muted-foreground hover:text-destructive"><X className="h-4 w-4" /></button>
-              </li>
-            ))}
+            {day.foods.map((f) => {
+              const customSummary = f.customFields
+                ? Object.entries(f.customFields)
+                    .map(([id, val]) => {
+                      const def = customNutrients.find((n) => n.id === id);
+                      return def ? `${val}${def.unit} ${def.name}` : null;
+                    })
+                    .filter(Boolean)
+                    .join(" · ")
+                : "";
+              return (
+                <li key={f.id} className="flex items-start justify-between gap-3 rounded-xl bg-[var(--surface-elevated)] p-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">{f.name}</div>
+                    <div className="text-xs text-muted-foreground tabular-nums">
+                      {f.calories} kcal · {f.protein}g protein · {f.fiber}g fiber
+                    </div>
+                    {customSummary && (
+                      <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{customSummary}</div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => update({ foods: day.foods.filter((x) => x.id !== f.id) })}
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -111,6 +233,9 @@ function FoodTab({ day, update, enabledNutrients }: { day: DayLog; update: (p: P
   );
 }
 
+// ---------------------------------------------------------------------------
+// WaterTab, WorkoutTab, WeightTab — unchanged from original
+// ---------------------------------------------------------------------------
 function WaterTab({ day, update }: { day: DayLog; update: (p: Partial<DayLog>) => void }) {
   const total = day.water.reduce((a, w) => a + w.ml, 0);
   function quick(ml: number) { update({ water: [...day.water, { id: uid(), ml }] }); }
@@ -194,16 +319,13 @@ function WorkoutTab({ day, update, weightKg }: { day: DayLog; update: (p: Partia
       <Field label="Notes">
         <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" className={inputCls} />
       </Field>
-
       <div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--surface-elevated)] p-3">
         <span className="text-sm text-muted-foreground">Estimated burn</span>
         <span className="font-display text-2xl font-bold text-[var(--neon)] tabular-nums">{Math.round(burn)} kcal</span>
       </div>
-
       <button onClick={add} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--neon)] py-3 font-semibold text-[var(--accent-foreground)] shadow-[0_0_18px_var(--neon)] transition hover:scale-[1.01]">
         <Plus className="h-4 w-4" /> Add workout
       </button>
-
       <ul className="mt-5 space-y-2">
         {day.workouts.map((w) => (
           <li key={w.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface-elevated)] p-3">
@@ -220,9 +342,6 @@ function WorkoutTab({ day, update, weightKg }: { day: DayLog; update: (p: Partia
   );
 }
 
-// NEW: FR-23 weight logging tab — lets the user record a dated body-weight
-// entry, which also syncs profile.weightKg via store.logWeight() so every
-// body-stat calculation (BMI/BMR/TDEE/etc.) stays current.
 function WeightTab({ date, currentWeightKg, onSave }: { date: string; currentWeightKg: number; onSave: (kg: number) => void }) {
   const [value, setValue] = useState(currentWeightKg);
   const [saved, setSaved] = useState(false);
@@ -263,7 +382,7 @@ function NumInput({ label, value, onChange }: { label: string; value: number; on
   return (
     <label className="block">
       <span className="mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
-      <input type="number" value={value} onChange={(e) => onChange(+e.target.value)} className={inputCls} />
+      <input type="number" value={value || ""} onChange={(e) => onChange(+e.target.value)} className={inputCls} />
     </label>
   );
 }

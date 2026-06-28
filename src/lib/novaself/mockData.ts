@@ -1,5 +1,5 @@
 import type {
-  AppSettings, Book, DayLog, DietPhase, MessItem, ReadingSession,
+  AppSettings, Book, ChatMessage, DayLog, DietPhase, MessItem, ReadingSession,
   SkinLog, Supplement, SupplementIntake, WorkoutPhase,
 } from "./types";
 import type { Profile } from "./calculations";
@@ -29,6 +29,8 @@ export const defaultSettings: AppSettings = {
     potassium: false, calcium: false, iron: false, vitD: false, vitB12: false,
     zinc: false, magnesium: false, cholesterol: false, omega3: true,
   },
+  customNutrients: [],
+  enabledCustomNutrients: {},
   ollamaUrl: "",
 };
 
@@ -164,11 +166,9 @@ export const defaultReading: ReadingSession[] = Array.from({ length: 8 }).map((_
 }));
 
 // ---------------------------------------------------------------------------
-// Empty state for real new users — used by signInGoogle() when the Sheet is
-// confirmed brand-new. Never shown pre-sign-in. Never written to a Sheet.
+// Empty state for real new users
 // ---------------------------------------------------------------------------
 
-/** Blank profile shown on the onboarding form for a genuinely new user. */
 export const emptyProfile: Profile = {
   name: "",
   age: 0,
@@ -183,12 +183,6 @@ export const emptyProfile: Profile = {
   hipCm: 0,
 };
 
-/**
- * The real zero-data baseline applied after sign-in to a brand-new Sheet.
- * All lists are empty. Profile is blank. Settings carry over from the
- * pre-sign-in defaults (theme, nutrient toggles) — those are user-device
- * preferences, not personal data, so it's fine to keep them.
- */
 export function emptyUserState() {
   return {
     profile: emptyProfile,
@@ -201,6 +195,6 @@ export function emptyUserState() {
     intakes: [] as SupplementIntake[],
     books: [] as Book[],
     readingSessions: [] as ReadingSession[],
-    chat: [] as ReturnType<typeof Array<import("./types").ChatMessage>>,
+    chat: [] as ChatMessage[],
   };
 }
