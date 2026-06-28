@@ -244,7 +244,7 @@ export default function Settings() {
   );
 }
 
-const ic = "w-full rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm outline-none focus:border-[var(--electric)]";
+const ic = "w-full rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--electric)]";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
