@@ -60,26 +60,20 @@ interface AppActions {
   saveData: () => void;
   loadData: () => void;
   syncToSheet: () => void;
-  /** Resolved spreadsheet handle for the current user — null if not signed in. */
   sheetHandle: SheetHandle | null;
+  sheetLoadWarning: string | null;
+  clearSheetLoadWarning: () => void;
 }
 
 type Ctx = AppState & AppActions;
 const AppCtx = createContext<Ctx | null>(null);
 
 const STORAGE_KEY = "novaself.v1";
-// We persist the SheetHandle (spreadsheetId + webViewLink) but never the accessToken.
 const SHEET_HANDLE_KEY = "novaself.sheetHandle";
 
-// ---------------------------------------------------------------------------
-// In-memory OAuth state (never persisted)
-// ---------------------------------------------------------------------------
 let _memAccessToken: string | null = null;
 let _memSheetHandle: SheetHandle | null = null;
 
-// ---------------------------------------------------------------------------
-// localStorage helpers
-// ---------------------------------------------------------------------------
 function loadInitial(): AppState {
   if (typeof window === "undefined") return baseState();
   try {
@@ -106,11 +100,6 @@ function storeSheetHandle(h: SheetHandle | null) {
   }
 }
 
-/**
- * Pre-sign-in default state. Mock data intentionally included here so the
- * unauthenticated welcome screen has something to render. This is NEVER
- * written to a real Sheet — see signInGoogle() below.
- */
 function baseState(): AppState {
   return {
     signedIn: false,
@@ -130,24 +119,18 @@ function baseState(): AppState {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadInitial());
   const [sheetHandle, setSheetHandle] = useState<SheetHandle | null>(() => loadStoredSheetHandle());
+  const [sheetLoadWarning, setSheetLoadWarning] = useState<string | null>(null);
 
-  // Debounce ref for auto-save.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Persist to localStorage on every state change.
   useEffect(() => {
     if (typeof window === "undefined") return;
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
   }, [state]);
 
-  // Debounced auto-save to Google Sheets (2.5s after last change).
-  // Only runs when signed in and we have a handle.
   useEffect(() => {
     if (!state.signedIn || !sheetHandle) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -164,7 +147,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state, sheetHandle]);
 
-  // Theme class.
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -178,46 +160,53 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return {
       ...state,
       sheetHandle,
+      sheetLoadWarning,
+      clearSheetLoadWarning: () => setSheetLoadWarning(null),
 
       signInGoogle: async () => {
-        // Must be called from a real user gesture (button click).
         const authResult = await signInWithGoogle();
         _memAccessToken = authResult.accessToken;
 
-        // Ensure the user's Sheet exists (creates it if this is their first sign-in).
-        const handle = await ensureUserSheet(authResult.accessToken);
+        const { handle, isNewlyCreated } = await ensureUserSheet(authResult.accessToken);
         _memSheetHandle = handle;
         setSheetHandle(handle);
         storeSheetHandle(handle);
 
-        // Load whatever's already in the Sheet.
-        const sheetState = await loadStateFromSheet(handle, authResult.accessToken);
-
-        // Detect a brand-new Sheet: no days AND no saved profile means the Sheet
-        // was just created and has never had real data written to it. In that case
-        // we must NOT carry forward the pre-sign-in mock data — reset to a genuine
-        // empty baseline so no fake entries end up in the user's Sheet.
-        const isNewSheet =
-          (!sheetState?.days || sheetState.days.length === 0) &&
-          !sheetState?.profile;
-
-        if (isNewSheet) {
-          // New user: empty slate. Preserve only device-level settings (theme,
-          // nutrient toggles, ollamaUrl) — those are not personal data.
+        if (isNewlyCreated) {
           update({
             ...emptyUserState(),
             settings: state.settings,
             signedIn: true,
             onboarded: false,
           });
-        } else {
-          // Returning user: fully hydrate from Sheet data. Any key missing from
-          // sheetState falls back to the current (possibly stale) local value —
-          // that's intentional, Sheet is source of truth for what it has.
+          return;
+        }
+
+        let sheetState: Partial<AppState> | null = null;
+        try {
+          sheetState = await loadStateFromSheet(handle, authResult.accessToken);
+        } catch (err) {
+          console.error("[store] signInGoogle: loadStateFromSheet threw on existing sheet:", err);
+        }
+
+        const loadReturnedData =
+          (sheetState?.days && sheetState.days.length > 0) || !!sheetState?.profile;
+
+        if (loadReturnedData) {
           update({
             ...(sheetState ?? {}),
             signedIn: true,
           });
+        } else {
+          console.warn(
+            "[store] signInGoogle: existing Sheet returned empty data. " +
+            "This is likely a transient fetch error. Local state preserved.",
+          );
+          setSheetLoadWarning(
+            "Couldn't load your data from Google Sheets right now (network issue). " +
+            "Your local data is safe — tap Sync in Settings to retry.",
+          );
+          update({ signedIn: true });
         }
       },
 
@@ -227,6 +216,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         _memSheetHandle = null;
         setSheetHandle(null);
         storeSheetHandle(null);
+        setSheetLoadWarning(null);
         update({ signedIn: false, onboarded: false });
       },
 
@@ -333,6 +323,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         _memSheetHandle = null;
         setSheetHandle(null);
         storeSheetHandle(null);
+        setSheetLoadWarning(null);
         setState(baseState());
       },
 
@@ -367,7 +358,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [state, sheetHandle]);
+  }, [state, sheetHandle, sheetLoadWarning]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }
