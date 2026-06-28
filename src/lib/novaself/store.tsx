@@ -12,7 +12,7 @@ import {
   defaultReading, defaultSettings, defaultSkinLogs, defaultSupplements, defaultWorkoutPhases,
   emptyUserState,
 } from "./mockData";
-import { signInWithGoogle, signOutOfGoogle } from "./googleAuth";
+import { signInWithGoogle, signOutOfGoogle, initGoogleAuth } from "./googleAuth";
 import {
   ensureUserSheet, loadStateFromSheet, saveStateToSheet, syncToSheet as _syncToSheet,
   type SheetHandle,
@@ -159,6 +159,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Keep a stable ref to current state so the reconnect flush always sends latest data.
   const stateRef = useRef<AppState>(state);
   useEffect(() => { stateRef.current = state; }, [state]);
+
+  // ---------------------------------------------------------------------------
+  // Eagerly initialize GIS as soon as the component mounts so that
+  // _tokenClient is ready before the user ever clicks Reconnect or Sign In.
+  // Without this, the first click would need to await getTokenClient() which
+  // breaks the browser's user-gesture requirement and blocks the OAuth popup.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    initGoogleAuth().catch((err) => {
+      console.warn("[store] GIS init failed on mount:", err);
+    });
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Persist to localStorage on every state change (always reliable).

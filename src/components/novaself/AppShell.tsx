@@ -33,6 +33,16 @@ export function AppShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+
+  async function handleReconnect() {
+    setReconnecting(true);
+    try {
+      await reconnectGoogle();
+    } finally {
+      setReconnecting(false);
+    }
+  }
 
   const aiChatAvailable = settings.ollamaUrl.trim().length > 0;
   const moreNavActive = moreNav.some((item) => pathname.startsWith(item.to));
@@ -112,10 +122,11 @@ export function AppShell() {
               Tap <strong>Reconnect</strong> to sync them to Google Sheets.
             </span>
             <button
-              onClick={reconnectGoogle}
-              className="shrink-0 rounded-md border border-red-400/40 bg-red-500/20 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/30"
+              onClick={handleReconnect}
+              disabled={reconnecting}
+              className="shrink-0 rounded-md border border-red-400/40 bg-red-500/20 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/30 disabled:opacity-50"
             >
-              Reconnect
+              {reconnecting ? "Reconnecting…" : "Reconnect"}
             </button>
           </div>
         )}

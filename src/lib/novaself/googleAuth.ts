@@ -8,10 +8,16 @@
 //   because we need an access token to call Drive/Sheets REST APIs directly.
 // - The GIS script is loaded in index.html (async defer). We gate all calls behind
 //   a waitForGIS() helper that polls until window.google is available.
-// - Access tokens last ~1 hour. getValidAccessToken() handles transparent re-auth:
-//   if a Sheets/Drive call gets a 401 the caller catches it and calls this, which
-//   does a silent requestAccessToken (prompt: "none") and retries once.
+// - Access tokens last ~1 hour. After expiry, callers show a reconnect banner so the
+//   user can re-auth with a real button click (never auto-popup from background saves).
 // - signOutOfGoogle() revokes the token so GIS clears its internal session.
+//
+// CRITICAL: GIS's requestAccessToken() MUST be called synchronously within a
+// browser user-gesture (click) handler. Any await before the call — including
+// awaiting getTokenClient() — breaks the gesture requirement and GIS either
+// silently fails or shows a popup that gets blocked. To guarantee synchronous
+// calling, initTokenClient is run eagerly on first waitForGIS() resolution and
+// the result is cached. requestToken() is then safe to call from an onClick.
 
 export const GOOGLE_CLIENT_ID =
   "93341990094-bq2u0f1p4bvj99b1lakc9jaev8s5fk6s.apps.googleusercontent.com";
@@ -38,11 +44,16 @@ export interface GoogleAuthResult {
 // Internal state — in-memory only, never touches localStorage.
 // ---------------------------------------------------------------------------
 let _accessToken: string | null = null;
-let _tokenExpiry: number = 0; // ms epoch when the token expires
+let _tokenExpiry: number = 0;
 
-// The GIS TokenClient is initialized once and reused for all token requests.
+// The GIS TokenClient — initialized once as soon as GIS loads, then reused.
+// It MUST be initialized before any interactive requestAccessToken call so that
+// the call itself is synchronous within the user gesture.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _tokenClient: any = null;
+
+// Promise that resolves when GIS is ready and _tokenClient is initialized.
+let _initPromise: Promise<void> | null = null;
 
 // ---------------------------------------------------------------------------
 // GIS availability guard
@@ -65,27 +76,36 @@ function waitForGIS(timeoutMs = 10_000): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Internal: initialize the token client once (idempotent).
+// Public: eagerly initialize the token client.
+// Call this as early as possible (e.g. app mount) so _tokenClient is ready
+// before any user clicks Reconnect or Sign In. This makes requestToken()
+// safe to call synchronously from a click handler.
 // ---------------------------------------------------------------------------
-async function getTokenClient() {
-  await waitForGIS();
-  if (!_tokenClient) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    _tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: GOOGLE_CLIENT_ID,
-      scope: SCOPES,
-      // callback is set per-request below (see requestToken).
-      callback: () => {},
-    });
-  }
-  return _tokenClient;
+export function initGoogleAuth(): Promise<void> {
+  if (_initPromise) return _initPromise;
+  _initPromise = waitForGIS().then(() => {
+    if (!_tokenClient) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      _tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: SCOPES,
+        callback: () => {}, // overridden per-request
+      });
+      console.log("[googleAuth] TokenClient initialized");
+    }
+  });
+  return _initPromise;
 }
 
 // ---------------------------------------------------------------------------
-// Internal: request a token, resolving with the raw response or rejecting.
-// `prompt` controls whether a consent screen is shown:
-//   ""       — default GIS behaviour (shows consent on first use, silent after)
-//   "none"   — silent only; rejects if interaction would be needed
+// Internal: request a token.
+// REQUIRES _tokenClient to already be initialized (call initGoogleAuth() first).
+// `prompt`:
+//   ""     — default GIS behaviour (shows consent on first use, silent after)
+//   "none" — silent only; rejects if interaction would be needed
+//
+// IMPORTANT: client.requestAccessToken() must be called synchronously from a
+// user-gesture handler. Do NOT await anything before calling this from a click.
 // ---------------------------------------------------------------------------
 interface TokenResponse {
   access_token: string;
@@ -94,61 +114,41 @@ interface TokenResponse {
 }
 
 function requestToken(prompt: "" | "none"): Promise<TokenResponse> {
-  return new Promise(async (resolve, reject) => {
-    const client = await getTokenClient();
-    client.callback = (resp: TokenResponse) => {
+  return new Promise((resolve, reject) => {
+    if (!_tokenClient) {
+      reject(new Error("[googleAuth] TokenClient not initialized. Call initGoogleAuth() first."));
+      return;
+    }
+    _tokenClient.callback = (resp: TokenResponse) => {
       if (resp.error) {
         reject(new Error(`[googleAuth] Token error: ${resp.error}`));
       } else {
         resolve(resp);
       }
     };
-    client.requestAccessToken({ prompt });
+    // This call is synchronous — it schedules the OAuth popup/flow immediately.
+    // It MUST happen within a user-gesture event handler to avoid popup blocking.
+    _tokenClient.requestAccessToken({ prompt });
   });
 }
 
 // ---------------------------------------------------------------------------
-// Internal: store a token response in module-level variables.
+// Internal: store a token response.
 // ---------------------------------------------------------------------------
 function storeToken(resp: TokenResponse) {
   _accessToken = resp.access_token;
-  // expires_in is in seconds; subtract a 60s buffer so we refresh slightly early.
   _tokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
 }
 
 // ---------------------------------------------------------------------------
-// Public: fetch a valid access token, refreshing silently if expired.
-// Call this before every Sheets/Drive API request instead of caching the token
-// yourself — this handles the ~1-hour expiry transparently.
-// ---------------------------------------------------------------------------
-export async function getValidAccessToken(): Promise<string> {
-  if (_accessToken && Date.now() < _tokenExpiry) {
-    return _accessToken;
-  }
-  // Try a silent refresh first (no user interaction).
-  try {
-    const resp = await requestToken("none");
-    storeToken(resp);
-    return _accessToken!;
-  } catch {
-    // Silent refresh failed (e.g. session truly expired). Fall through to
-    // interactive re-auth, which MUST be called from a user gesture.
-    // Callers that need this path should catch the error and surface a
-    // "Re-authenticate" button to the user.
-    throw new Error(
-      "[googleAuth] Silent token refresh failed. Call signInWithGoogle() from a user gesture to re-authenticate.",
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Public: sign in interactively (must be called from a real user gesture).
+// Public: sign in interactively.
+// MUST be called directly from a user-gesture handler (onClick).
+// Assumes initGoogleAuth() has already resolved.
 // ---------------------------------------------------------------------------
 export async function signInWithGoogle(): Promise<GoogleAuthResult> {
   const resp = await requestToken("");
   storeToken(resp);
 
-  // Fetch user profile from Google's userinfo endpoint.
   const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
     headers: { Authorization: `Bearer ${_accessToken}` },
   });
@@ -172,7 +172,7 @@ export async function signInWithGoogle(): Promise<GoogleAuthResult> {
 // ---------------------------------------------------------------------------
 export async function restoreGoogleSession(): Promise<GoogleAuthResult | null> {
   try {
-    await waitForGIS();
+    await initGoogleAuth(); // ensure client is ready
     const resp = await requestToken("none");
     storeToken(resp);
 
@@ -202,7 +202,6 @@ export async function signOutOfGoogle(): Promise<void> {
   const tokenToRevoke = _accessToken;
   _accessToken = null;
   _tokenExpiry = 0;
-  // Revoke via GIS — this tells Google to invalidate the token immediately.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).google?.accounts?.oauth2?.revoke(tokenToRevoke, () => {
     console.log("[googleAuth] Token revoked.");
