@@ -101,14 +101,14 @@ export default function Settings() {
             value={customDraft.name}
             onChange={(e) => setCustomDraft({ ...customDraft, name: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && submitCustomNutrient()}
-            className={ic + " flex-1"}
+            className="min-w-0 flex-1 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--electric)]"
           />
           <input
             placeholder="Unit"
             value={customDraft.unit}
             onChange={(e) => setCustomDraft({ ...customDraft, unit: e.target.value })}
             onKeyDown={(e) => e.key === "Enter" && submitCustomNutrient()}
-            className={ic + " w-20 shrink-0"}
+            className="w-16 shrink-0 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--electric)]"
           />
           <button
             onClick={submitCustomNutrient}
