@@ -23,7 +23,7 @@
 // Simple flat values are stored in individual columns.
 
 import type { AppState } from "./store";
-import { getValidAccessToken } from "./googleAuth";
+
 
 export interface SheetHandle {
   spreadsheetId: string;
@@ -56,11 +56,7 @@ const TABS = ["Daily_Log", "Weekly_Summary", "Profile", "Supplements", "Config"]
 async function gDriveGet(url: string, token: string) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (res.status === 401) {
-    // Token expired mid-session — refresh and retry once.
-    const fresh = await getValidAccessToken();
-    const retry = await fetch(url, { headers: { Authorization: `Bearer ${fresh}` } });
-    if (!retry.ok) throw new Error(`[googleSheets] Drive GET ${retry.status}: ${await retry.text()}`);
-    return retry.json();
+    throw new Error("[googleSheets] 401 Unauthorized — token expired. Reconnect required.");
   }
   if (!res.ok) throw new Error(`[googleSheets] Drive GET ${res.status}: ${await res.text()}`);
   return res.json();
@@ -73,14 +69,7 @@ async function gPost(url: string, body: unknown, token: string) {
     body: JSON.stringify(body),
   });
   if (res.status === 401) {
-    const fresh = await getValidAccessToken();
-    const retry = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${fresh}` },
-      body: JSON.stringify(body),
-    });
-    if (!retry.ok) throw new Error(`[googleSheets] POST ${retry.status}: ${await retry.text()}`);
-    return retry.json();
+    throw new Error("[googleSheets] 401 Unauthorized — token expired. Reconnect required.");
   }
   if (!res.ok) throw new Error(`[googleSheets] POST ${res.status}: ${await res.text()}`);
   return res.json();
@@ -93,14 +82,7 @@ async function gPut(url: string, body: unknown, token: string) {
     body: JSON.stringify(body),
   });
   if (res.status === 401) {
-    const fresh = await getValidAccessToken();
-    const retry = await fetch(url, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${fresh}` },
-      body: JSON.stringify(body),
-    });
-    if (!retry.ok) throw new Error(`[googleSheets] PUT ${retry.status}: ${await retry.text()}`);
-    return retry.json();
+    throw new Error("[googleSheets] 401 Unauthorized — token expired. Reconnect required.");
   }
   if (!res.ok) throw new Error(`[googleSheets] PUT ${res.status}: ${await res.text()}`);
   return res.json();
