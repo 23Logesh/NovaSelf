@@ -2,6 +2,7 @@ import { Component, type ReactNode } from "react";
 import { HashRouter, Routes, Route, Navigate, useRouteError } from "react-router-dom";
 import { AppProvider } from "@/lib/novaself/store";
 import { AppShell } from "@/components/novaself/AppShell";
+import { RequireAuth } from "@/components/novaself/RequireAuth";
 import Welcome from "@/pages/Welcome";
 import Dashboard from "@/pages/Dashboard";
 import LogPage from "@/pages/Log";
@@ -65,7 +66,7 @@ export default function App() {
             <Route path="/" element={<RootRedirect />} />
             <Route path="/welcome" element={<Welcome />} />
 
-            <Route element={<AppShell />}>
+            <Route element={<RequireAuth><AppShell /></RequireAuth>}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/log" element={<LogPage />} />
               <Route path="/body" element={<Body />} />

@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
 import { Apple, ArrowRight, Sparkles } from "lucide-react";
 import { useApp } from "@/lib/novaself/store";
 import type { Sex } from "@/lib/novaself/calculations";
 
 export default function Welcome() {
-  const { signedIn, signInGoogle, saveProfile, profile } = useApp();
+  const { signedIn, onboarded, signInGoogle, saveProfile, profile } = useApp();
   const navigate = useNavigate();
   const [step, setStep] = useState(signedIn ? 1 : 0);
   const [signingIn, setSigningIn] = useState(false);
@@ -13,8 +13,8 @@ export default function Welcome() {
 
   // Form state is NOT initialized from profile here — that would pre-fill
   // with whatever was in state before sign-in (i.e. mock data for new users).
-  // Instead we seed it in handleSignIn() AFTER the store has reset to the real
-  // empty/loaded profile. For returning users who land on step=1 directly
+  // Instead we seed it in handleStepChange() AFTER the store has reset to the
+  // real empty/loaded profile. For returning users who land on step=1 directly
   // (signedIn=true on mount), we do read from profile since by that point it
   // was loaded from their Sheet.
   const [form, setForm] = useState(() => ({
@@ -26,32 +26,27 @@ export default function Welcome() {
     goalWeightKg: signedIn ? profile.goalWeightKg : 0,
   }));
 
-  async function handleSignIn() {
+  // ── Guard: already fully signed in + onboarded ───────────────────────────
+  // Handles: refresh on /welcome, back button, bookmark after onboarding done.
+  // Safe for the sign-in flow: new users have onboarded=false after signInGoogle(),
+  // so the guard doesn't fire mid-flow. Returning users (onboarded=true) get
+  // redirected to /dashboard as soon as signInGoogle() resolves — they skip
+  // the profile form entirely, which is correct.
+  if (signedIn && onboarded) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  async function handleSignInAndAdvance() {
     setSigningIn(true);
     setError("");
     try {
-      // After this resolves, store state has been reset to emptyUserState()
-      // (new user) or hydrated from the Sheet (returning user).
       await signInGoogle();
-
-      // Now read the post-sign-in profile from the store ref. We access the
-      // context value indirectly via a fresh read — but because signInGoogle()
-      // calls setState synchronously within the action, profile in the closure
-      // is still the pre-sign-in value. So we seed form explicitly from the
-      // two known outcomes:
-      //   - New user: emptyProfile → all blanks (name="", age=0, etc.)
-      //   - Returning user: their real profile from the Sheet
-      // We detect new user by checking if the store's profile.name is blank
-      // after sign-in. Since signInGoogle() uses setState which batches,
-      // we can't read the updated value synchronously here — but we don't
-      // need to: we already have the right answer from emptyUserState():
-      // new users get blank fields, returning users keep their Sheet data.
-      // The simplest correct approach: always seed from profile after the
-      // await, because by the time React re-renders this component the state
-      // will have updated. We trigger that by moving to step 1 AFTER state
-      // settles — React will re-render with the new profile before step 1 UI
-      // is shown. So just use profile from the next render cycle:
-      setStep(1);
+      // signInGoogle() setState is batched; we need to advance step AFTER
+      // the re-render so profile reflects the post-sign-in value. Using a
+      // microtask (Promise.resolve) lets React flush state before we read
+      // profile in handleStepChange.
+      await Promise.resolve();
+      handleStepChange(1);
     } catch (err) {
       console.error("[Welcome] Sign-in failed:", err);
       setError("Sign-in failed. Please try again.");
@@ -77,25 +72,6 @@ export default function Welcome() {
       });
     }
     setStep(newStep);
-  }
-
-  async function handleSignInAndAdvance() {
-    setSigningIn(true);
-    setError("");
-    try {
-      await signInGoogle();
-      // signInGoogle() setState is batched; we need to advance step AFTER
-      // the re-render so profile reflects the post-sign-in value. Using a
-      // microtask (Promise.resolve) lets React flush state before we read
-      // profile in handleStepChange.
-      await Promise.resolve();
-      handleStepChange(1);
-    } catch (err) {
-      console.error("[Welcome] Sign-in failed:", err);
-      setError("Sign-in failed. Please try again.");
-    } finally {
-      setSigningIn(false);
-    }
   }
 
   function complete() {
