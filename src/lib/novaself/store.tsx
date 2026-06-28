@@ -196,6 +196,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           update({
             ...(sheetState ?? {}),
             signedIn: true,
+            onboarded: true,
           });
         } else {
           console.warn(
