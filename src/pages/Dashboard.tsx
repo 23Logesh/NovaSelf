@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   Flame, Zap, BookOpen, Pencil, TrendingDown,
-  Dumbbell, Salad, Droplets, Pill, Sparkles,
+  Dumbbell, Salad, Droplets, Pill, Sparkles, Moon,
   CalendarDays,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -45,7 +45,7 @@ function computeStreak(set: Set<string>): number {
 // violet use raw oklch values matching the ProgressRing constants so the
 // dashboard feels consistent.
 // ---------------------------------------------------------------------------
-const CATEGORY_META: Record<
+const CATEGORY_META: Record
   TimelineCategory,
   {
     icon: LucideIcon;
@@ -58,6 +58,7 @@ const CATEGORY_META: Record<
   water:      { icon: Droplets,  color: "oklch(0.78 0.18 60)",      bgAlpha: "color-mix(in oklab, oklch(0.78 0.18 60) 15%, transparent)" },
   supplement: { icon: Pill,      color: "oklch(0.70 0.22 0)",       bgAlpha: "color-mix(in oklab, oklch(0.70 0.22 0) 15%, transparent)" },
   skin:       { icon: Sparkles,  color: "oklch(0.72 0.16 300)",     bgAlpha: "color-mix(in oklab, oklch(0.72 0.16 300) 15%, transparent)" },
+  sleep:      { icon: Moon,      color: "oklch(0.68 0.14 250)",     bgAlpha: "color-mix(in oklab, oklch(0.68 0.14 250) 15%, transparent)" },
   reading:    { icon: BookOpen,  color: "oklch(0.75 0.15 185)",     bgAlpha: "color-mix(in oklab, oklch(0.75 0.15 185) 15%, transparent)" },
 };
 

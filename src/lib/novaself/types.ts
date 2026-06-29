@@ -81,6 +81,16 @@ export interface SkinLog {
   notes?: string;
 }
 
+/** NEW — Sleep tracking. One entry per night, keyed by the date you woke up. */
+export interface SleepLog {
+  date: string;          // ISO yyyy-mm-dd — the day you woke up
+  bedTime?: string;      // "23:30" (24h, local time)
+  wakeTime?: string;     // "07:00"
+  durationHours?: number; // auto-computed from bedTime/wakeTime when both are set
+  quality: number;       // 1 (terrible) – 5 (great)
+  notes?: string;
+}
+
 export interface Supplement { id: string; name: string; unit: string; stock: number; defaultDose: number }
 export interface SupplementIntake { id: string; supplementId: string; date: string; amount: number }
 

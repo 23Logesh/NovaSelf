@@ -3,19 +3,19 @@ import {
 } from "react";
 import type {
   AppSettings, Book, ChatMessage, CustomNutrient, DayLog, DietPhase, MessItem,
-  ReadingSession, SkinLog, Supplement, SupplementIntake, WorkoutPhase,
+  ReadingSession, SkinLog, SleepLog, Supplement, SupplementIntake, WorkoutPhase,
 } from "./types";
 import type { Profile } from "./calculations";
 import { isoDate } from "./calculations";
 import {
   defaultBooks, defaultDays, defaultDietPhases, defaultIntakes, defaultMess, defaultProfile,
-  defaultReading, defaultSettings, defaultSkinLogs, defaultSupplements, defaultWorkoutPhases,
-  emptyUserState,
+  defaultReading, defaultSettings, defaultSkinLogs, defaultSleepLogs, defaultSupplements,
+  defaultWorkoutPhases, emptyUserState,
 } from "./mockData";
 import { signInWithGoogle, signOutOfGoogle, initGoogleAuth } from "./googleAuth";
 import {
   ensureUserSheet, loadStateFromSheet, saveStateToSheet, syncToSheet as _syncToSheet,
-  type SheetHandle,
+  pullRemoteChanges, type SheetHandle,
 } from "./googleSheets";
 
 export type { SheetHandle };
@@ -31,12 +31,17 @@ export interface AppState {
   /** Google profile from the most recent successful sign-in. Null when signed out. */
   googleAccount: GoogleAccount | null;
   profile: Profile;
+  /** Bumped on every saveProfile() call — used to resolve multi-device merge conflicts. */
+  profileUpdatedAt: number;
   settings: AppSettings;
+  /** Bumped on every settings change — used to resolve multi-device merge conflicts. */
+  settingsUpdatedAt: number;
   days: DayLog[];
   dietPhases: DietPhase[];
   mess: MessItem[];
   workoutPhases: WorkoutPhase[];
   skinLogs: SkinLog[];
+  sleepLogs: SleepLog[];
   supplements: Supplement[];
   intakes: SupplementIntake[];
   books: Book[];
@@ -62,8 +67,11 @@ interface AppActions {
   setMess: (m: MessItem[]) => void;
   setWorkoutPhases: (p: WorkoutPhase[]) => void;
   upsertSkin: (s: SkinLog) => void;
+  upsertSleep: (s: SleepLog) => void;
   setSupplements: (s: Supplement[]) => void;
   logIntake: (i: SupplementIntake) => void;
+  /** Undo a previously logged intake — restores the consumed amount back to stock. */
+  removeIntake: (intakeId: string) => void;
   setBooks: (b: Book[]) => void;
   logReading: (s: ReadingSession) => void;
   sendChat: (text: string) => void;
@@ -133,12 +141,15 @@ function baseState(): AppState {
     onboarded: false,
     googleAccount: null,
     profile: defaultProfile,
+    profileUpdatedAt: 0,
     settings: defaultSettings,
+    settingsUpdatedAt: 0,
     days: defaultDays,
     dietPhases: defaultDietPhases,
     mess: defaultMess,
     workoutPhases: defaultWorkoutPhases,
     skinLogs: defaultSkinLogs,
+    sleepLogs: defaultSleepLogs,
     supplements: defaultSupplements,
     intakes: defaultIntakes,
     books: defaultBooks,
@@ -233,6 +244,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [state, sheetHandle]);
+
+  // ---------------------------------------------------------------------------
+  // NEW — Background pull. Keeps THIS device in sync with changes made on
+  // OTHER devices even when you make no local edits here (e.g. you log
+  // supplements on mobile, then come back to a laptop tab that's just
+  // sitting open with nothing new typed into it).
+  //
+  // Runs: once immediately, on tab visibility/focus, and every 45s while
+  // signed in. Reuses pullRemoteChanges() in googleSheets.ts — same
+  // Config!A:B lastModified check + _mergeStates() merge used by the
+  // save-time conflict check, no duplicated logic.
+  //
+  // Never triggers an interactive OAuth popup — if _memAccessToken is
+  // missing it silently skips (the auto-save effect above already shows
+  // the reconnect banner for that case).
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!state.signedIn || !sheetHandle) return;
+
+    let cancelled = false;
+
+    const tryPull = async () => {
+      if (!_memAccessToken) return;
+      try {
+        const merged = await pullRemoteChanges(sheetHandle, _memAccessToken, stateRef.current);
+        if (merged && !cancelled) {
+          console.log("[store] Pulled remote changes from another device — merging in");
+          setState((s) => ({ ...s, ...merged }));
+        }
+      } catch (err) {
+        console.warn("[store] Background pull failed (will retry):", err);
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") tryPull();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", tryPull);
+    const interval = setInterval(tryPull, 45_000);
+
+    // Pull once right away too, in case data changed while this tab was closed.
+    tryPull();
+
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", tryPull);
+      clearInterval(interval);
+    };
+  }, [state.signedIn, sheetHandle]);
 
   // ---------------------------------------------------------------------------
   // Theme sync
@@ -360,14 +422,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
       },
 
       saveProfile: (p) =>
-        setState((s) => ({ ...s, profile: { ...s.profile, ...p }, onboarded: true })),
+        setState((s) => ({
+          ...s,
+          profile: { ...s.profile, ...p },
+          profileUpdatedAt: Date.now(),
+          onboarded: true,
+        })),
 
       updateSettings: (sp) =>
-        setState((s) => ({ ...s, settings: { ...s.settings, ...sp } })),
+        setState((s) => ({
+          ...s,
+          settings: { ...s.settings, ...sp },
+          settingsUpdatedAt: Date.now(),
+        })),
 
       toggleNutrient: (key) =>
         setState((s) => ({
           ...s,
+          settingsUpdatedAt: Date.now(),
           settings: {
             ...s.settings,
             enabledNutrients: {
@@ -380,6 +452,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addCustomNutrient: (n) =>
         setState((s) => ({
           ...s,
+          settingsUpdatedAt: Date.now(),
           settings: {
             ...s.settings,
             customNutrients: [...s.settings.customNutrients, n],
@@ -392,6 +465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const { [id]: _removed, ...restEnabled } = s.settings.enabledCustomNutrients;
           return {
             ...s,
+            settingsUpdatedAt: Date.now(),
             settings: {
               ...s.settings,
               customNutrients: s.settings.customNutrients.filter((n) => n.id !== id),
@@ -403,6 +477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleCustomNutrient: (id) =>
         setState((s) => ({
           ...s,
+          settingsUpdatedAt: Date.now(),
           settings: {
             ...s.settings,
             enabledCustomNutrients: {
@@ -413,7 +488,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })),
 
       clearOllamaUrl: () =>
-        setState((s) => ({ ...s, settings: { ...s.settings, ollamaUrl: "" } })),
+        setState((s) => ({
+          ...s,
+          settings: { ...s.settings, ollamaUrl: "" },
+          settingsUpdatedAt: Date.now(),
+        })),
 
       upsertDay: (day) =>
         setState((s) => {
@@ -449,6 +528,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           skinLogs: [log, ...s.skinLogs.filter((x) => x.date !== log.date)],
         })),
 
+      upsertSleep: (log) =>
+        setState((s) => ({
+          ...s,
+          sleepLogs: [log, ...s.sleepLogs.filter((x) => x.date !== log.date)],
+        })),
+
       setSupplements: (supplements) => update({ supplements }),
 
       logIntake: (intake) =>
@@ -461,6 +546,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
               : sup,
           ),
         })),
+
+      // Undo: removes the intake row and gives the consumed amount back to stock.
+      removeIntake: (intakeId) =>
+        setState((s) => {
+          const target = s.intakes.find((i) => i.id === intakeId);
+          if (!target) return s;
+          return {
+            ...s,
+            intakes: s.intakes.filter((i) => i.id !== intakeId),
+            supplements: s.supplements.map((sup) =>
+              sup.id === target.supplementId
+                ? { ...sup, stock: sup.stock + target.amount }
+                : sup,
+            ),
+          };
+        }),
 
       setBooks: (books) => update({ books }),
 

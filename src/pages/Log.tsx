@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Droplets, Dumbbell, Salad, Plus, X, Scale, Pill, Sparkles, BookOpen } from "lucide-react";
+import { Droplets, Dumbbell, Salad, Plus, X, Scale, Pill, Sparkles, BookOpen, Moon } from "lucide-react";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
 import { SupplementIntakePanel } from "@/components/novaself/SupplementIntakePanel";
 import { SkinCheckIn } from "@/components/novaself/SkinCheckIn";
+import { SleepCheckIn } from "@/components/novaself/SleepCheckIn";
 import { ReadingSessionForm } from "@/components/novaself/ReadingSessionForm";
 import { useApp, today } from "@/lib/novaself/store";
 import { caloriesBurned, WORKOUT_METS, workoutLabel } from "@/lib/novaself/calculations";
@@ -13,7 +14,7 @@ import type { FoodEntry, WorkoutEntry, DayLog } from "@/lib/novaself/types";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
-type Tab = "food" | "water" | "workout" | "weight" | "supplements" | "skin" | "books";
+type Tab = "food" | "water" | "workout" | "weight" | "supplements" | "skin" | "sleep" | "books";
 
 const TABS: [Tab, string, React.ComponentType<{ className?: string }>][] = [
   ["food", "Food", Salad],
@@ -22,6 +23,7 @@ const TABS: [Tab, string, React.ComponentType<{ className?: string }>][] = [
   ["weight", "Weight", Scale],
   ["supplements", "Supps", Pill],
   ["skin", "Skin", Sparkles],
+  ["sleep", "Sleep", Moon],
   ["books", "Books", BookOpen],
 ];
 
@@ -52,7 +54,7 @@ export default function LogPage() {
         }
       />
 
-      {/* Tab bar — scrollable on mobile so all 7 fit */}
+      {/* Tab bar — scrollable on mobile so all 8 fit */}
       <div className="overflow-x-auto">
         <div className="flex min-w-max gap-1.5 rounded-full border border-border bg-[var(--surface)] p-1">
           {TABS.map(([k, label, Icon]) => (
@@ -97,6 +99,7 @@ export default function LogPage() {
         </NCard>
       )}
       {tab === "skin" && <SkinCheckIn />}
+      {tab === "sleep" && <SleepCheckIn />}
       {tab === "books" && <ReadingSessionForm />}
     </div>
   );

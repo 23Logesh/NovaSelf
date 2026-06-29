@@ -1,6 +1,6 @@
 import type {
   AppSettings, Book, ChatMessage, DayLog, DietPhase, MessItem, ReadingSession,
-  SkinLog, Supplement, SupplementIntake, WorkoutPhase,
+  SkinLog, SleepLog, Supplement, SupplementIntake, WorkoutPhase,
 } from "./types";
 import type { Profile } from "./calculations";
 import { caloriesBurned, isoDate, WORKOUT_METS } from "./calculations";
@@ -148,6 +148,9 @@ export const defaultSkinLogs: SkinLog[] = Array.from({ length: 7 }).map((_, i) =
   darkPatchChange: false,
 }));
 
+// NEW — empty by default, same pattern as supplements (user opts in).
+export const defaultSleepLogs: SleepLog[] = [];
+
 export const defaultSupplements: Supplement[] = [];
 export const defaultIntakes: SupplementIntake[] = [];
 
@@ -191,6 +194,7 @@ export function emptyUserState() {
     mess: [] as MessItem[],
     workoutPhases: [] as WorkoutPhase[],
     skinLogs: [] as SkinLog[],
+    sleepLogs: [] as SleepLog[],
     supplements: [] as Supplement[],
     intakes: [] as SupplementIntake[],
     books: [] as Book[],

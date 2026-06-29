@@ -8,9 +8,13 @@ const uid = () => Math.random().toString(36).slice(2, 10);
  * Quick-intake grid: shows every supplement with a "Take" button for today.
  * Used by both the Log page (Supplements tab) and the full Supplements page.
  * Stock management (add/delete supplements) stays in Supplements.tsx only.
+ *
+ * NEW: each card now shows an "Undo last take" action when something was
+ * logged today — removes the most recent intake for that supplement and
+ * restores the deducted stock.
  */
 export function SupplementIntakePanel() {
-  const { supplements, intakes, logIntake } = useApp();
+  const { supplements, intakes, logIntake, removeIntake } = useApp();
   const todayIntakes = intakes.filter((i) => i.date === today());
 
   if (supplements.length === 0) {
@@ -25,9 +29,8 @@ export function SupplementIntakePanel() {
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {supplements.map((s) => {
-        const taken = todayIntakes
-          .filter((i) => i.supplementId === s.id)
-          .reduce((a, i) => a + i.amount, 0);
+        const supplementIntakesToday = todayIntakes.filter((i) => i.supplementId === s.id);
+        const taken = supplementIntakesToday.reduce((a, i) => a + i.amount, 0);
         const low = s.stock <= s.defaultDose * 5;
         const outOfStock = s.stock < s.defaultDose;
 
@@ -41,6 +44,14 @@ export function SupplementIntakePanel() {
                   <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
                     Stock: {s.stock} {s.unit}{s.stock === 1 ? "" : "s"} · taken today: {taken} {s.unit}{taken === 1 ? "" : "s"}
                   </div>
+                  {supplementIntakesToday.length > 0 && (
+                    <button
+                      onClick={() => removeIntake(supplementIntakesToday[0].id)}
+                      className="mt-1 text-xs font-medium text-[var(--electric)] hover:underline"
+                    >
+                      Undo last take
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

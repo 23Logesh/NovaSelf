@@ -11,6 +11,7 @@ import Progress from "@/pages/Progress";
 import Diet from "@/pages/Diet";
 import Workout from "@/pages/Workout";
 import Skin from "@/pages/Skin";
+import Sleep from "@/pages/Sleep";
 import Supplements from "@/pages/Supplements";
 import Books from "@/pages/Books";
 import Chat from "@/pages/Chat";
@@ -74,6 +75,7 @@ export default function App() {
               <Route path="/diet" element={<Diet />} />
               <Route path="/workout" element={<Workout />} />
               <Route path="/skin" element={<Skin />} />
+              <Route path="/sleep" element={<Sleep />} />
               <Route path="/supplements" element={<Supplements />} />
               <Route path="/books" element={<Books />} />
               <Route path="/chat" element={<Chat />} />

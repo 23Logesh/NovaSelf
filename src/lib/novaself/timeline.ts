@@ -6,9 +6,9 @@
 // display-ready entries for the "Today's Timeline" feed on the Dashboard.
 //
 // ORDERING NOTE: Entries are sorted by category in a fixed logical order
-// (workouts → food → water → supplements → skin → reading) because individual
-// entry types don't store a time-of-day timestamp — only a date. Within each
-// category the original insertion order is preserved.
+// (workouts → food → water → supplements → skin → sleep → reading) because
+// individual entry types don't store a time-of-day timestamp — only a date.
+// Within each category the original insertion order is preserved.
 //
 // If a `loggedAt: number` (unix ms) field is ever added to the entry types and
 // stamped at creation time, replace the category-order sort below with a simple
@@ -24,6 +24,7 @@ export type TimelineCategory =
   | "water"
   | "supplement"
   | "skin"
+  | "sleep"
   | "reading";
 
 export interface TimelineEntry {
@@ -43,22 +44,25 @@ const CATEGORY_ORDER: TimelineCategory[] = [
   "water",
   "supplement",
   "skin",
+  "sleep",
   "reading",
 ];
 
 /**
  * Build a flat list of timeline entries for a given ISO date (yyyy-mm-dd),
- * merging workouts, food, water, supplements, skin log, and reading sessions.
+ * merging workouts, food, water, supplements, skin log, sleep log, and
+ * reading sessions.
  *
  * Accepts only the AppState slices it needs so callers can pass any compatible
  * object — useful for testing or future per-date detail views.
  */
 export function buildDailyTimeline(
   date: string,
-    state: Pick<
+    state: Pick
     AppState,
     | "days"
     | "skinLogs"
+    | "sleepLogs"
     | "intakes"
     | "supplements"
     | "readingSessions"
@@ -133,6 +137,24 @@ export function buildDailyTimeline(
           ? `Skin & hair — ${done.join(", ")}`
           : "Skin & hair check-in",
       detail: skinLog.notes || undefined,
+    });
+  }
+
+  // ── Sleep ─────────────────────────────────────────────────────────────────
+  const sleepLog = state.sleepLogs.find((s) => s.date === date);
+  if (sleepLog) {
+    const hours = sleepLog.durationHours;
+    entries.push({
+      id: `sleep-${date}`,
+      category: "sleep",
+      label:
+        hours !== undefined
+          ? `Slept ${hours.toFixed(1)}h — quality ${sleepLog.quality}/5`
+          : `Sleep logged — quality ${sleepLog.quality}/5`,
+      detail:
+        sleepLog.bedTime && sleepLog.wakeTime
+          ? `${sleepLog.bedTime} → ${sleepLog.wakeTime}`
+          : sleepLog.notes || undefined,
     });
   }
 

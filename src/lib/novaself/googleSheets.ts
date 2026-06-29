@@ -16,6 +16,10 @@
 //   device last synced. In that case the full remote state is loaded and
 //   merged with local changes before writing.
 //
+//   pullRemoteChanges() performs the SAME cheap check on a timer / on tab
+//   focus (see store.tsx), so a device that isn't making local edits still
+//   picks up changes from other devices without needing a reload.
+//
 //   _lastKnownSheetTimestamp starts at 0 on every page load (conservative —
 //   means the first auto-save after load always does a conflict check).
 //   loadStateFromSheet() updates it so that immediately after sign-in the
@@ -36,35 +40,49 @@
 //     CAVEAT: if a delete-entry UI is ever added, add a per-date `deletedIds`
 //     set to prevent deleted entries from being resurrected on merge.
 //
-//   Per-date — SkinLog (skinLogs):
+//   Per-date — SkinLog (skinLogs) / SleepLog (sleepLogs):
 //     All dates from both devices are kept. For a date on both, local wins.
-//     SkinLog is a single structured checklist — no sub-entry ids, no
-//     updatedAt. Local is the best available proxy for "most recent".
+//     Both are single structured per-day entries with no sub-entry ids and
+//     no updatedAt — local is the best available proxy for "most recent".
 //
 //   Books:
 //     Union by id. For a book on both devices: local wins for all metadata
 //     (title, author, totalPages); pagesRead = max(local, remote) since
 //     reading progress only ever moves forward.
 //
-//   Whole-list configs (dietPhases, workoutPhases, mess, supplements):
+//   Supplements (definitions):
+//     Union by id — a supplement added on EITHER device is kept (this used
+//     to be local-wins-entirely, which silently dropped a supplement added
+//     on one device the next time the other device saved). On the same id,
+//     local wins for name/unit/defaultDose; stock = min(local, remote) since
+//     stock only ever decreases via logIntake in the current UI (no restock
+//     control yet) — whichever device logged more intakes has the more
+//     truthful number. NOTE: if a restock/edit-stock feature is ever added,
+//     this min() rule breaks — switch to signed stock-delta events, same
+//     pattern as intakes.
+//
+//   Whole-list configs (dietPhases, workoutPhases, mess):
 //     Local wins entirely. TRADEOFF: an item added to one of these lists on
 //     a remote device can be lost if the local device saves before the remote
 //     syncs. Accepted because these lists are edited rarely and true per-item
 //     merging would require change-tracking not present in the current schema.
 //
 //   Scalars (profile, settings):
-//     Local wins.
+//     Whichever side has the newer profileUpdatedAt / settingsUpdatedAt wins
+//     (see AppState). Old sheets without these rows parse to 0, so they never
+//     beat a real timestamp.
 //
 // TAB LAYOUT:
 //   Daily_Log   — one row per DayLog (date, weightKg, foods, water, workouts)
-//   Profile     — key/value: profile JSON, settings JSON
+//   Profile     — key/value: profile JSON, settings JSON, profileUpdatedAt,
+//                            settingsUpdatedAt
 //   Supplements — one row per Supplement; intakes JSON in last column
 //   Config      — key/value: lastModified, dietPhases, mess, workoutPhases,
-//                            skinLogs, books, readingSessions, chat
+//                            skinLogs, sleepLogs, books, readingSessions, chat
 // ============================================================================
 
 import type { AppState } from "./store";
-import type { DayLog, SkinLog, Book } from "./types";
+import type { DayLog, SkinLog, SleepLog, Book } from "./types";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -91,8 +109,8 @@ export interface EnsureSheetResult {
 
 /**
  * The `lastModified` timestamp this device last wrote to (or read from) the
- * Sheet. Compared against the Sheet's stored timestamp before every save to
- * detect writes from other devices.
+ * Sheet. Compared against the Sheet's stored timestamp before every save (and
+ * every background pull) to detect writes from other devices.
  *
  * Starts at 0 on every page load. loadStateFromSheet() sets it to the
  * Sheet's current timestamp so the first auto-save after sign-in doesn't
@@ -353,12 +371,59 @@ export async function syncToSheet(
 }
 
 // ---------------------------------------------------------------------------
-// _readFullState — private; used by conflict-merge path only
+// NEW — pullRemoteChanges: read-only check for changes from OTHER devices.
+//
+// Used by store.tsx's background-pull effect so a device that ISN'T making
+// local edits (e.g. a laptop tab just sitting open) still picks up data
+// logged elsewhere (e.g. mobile), instead of waiting for its own next local
+// edit to trigger the save-time conflict check.
+//
+// Returns null when the Sheet hasn't changed since we last knew about it
+// (the common case — cheap, only reads the small Config tab).
+// Returns a merged Partial<AppState> (ready to apply via setState) when the
+// Sheet IS newer — same merge rules as a save-time conflict, just without
+// writing anything back (the caller's own state-change will trigger that
+// via the normal auto-save effect, refreshing the Sheet's lastModified).
+// ---------------------------------------------------------------------------
+export async function pullRemoteChanges(
+  handle: SheetHandle,
+  accessToken: string,
+  localState: Partial<AppState>,
+): Promise<Partial<AppState> | null> {
+  const configData = await gDriveGet(
+    `${SHEETS_BASE_URL}/${handle.spreadsheetId}/values/${encodeURIComponent("Config!A:B")}`,
+    accessToken,
+  );
+
+  const sheetTimestamp =
+    parseInt(kvToMap((configData.values as string[][] | undefined) ?? []).get("lastModified") ?? "0", 10) || 0;
+
+  if (sheetTimestamp <= _lastKnownSheetTimestamp) {
+    return null; // nothing new
+  }
+
+  console.log(
+    `[googleSheets] pullRemoteChanges: sheet=${sheetTimestamp}, ` +
+      `known=${_lastKnownSheetTimestamp}. Loading + merging remote state.`,
+  );
+
+  const remoteState = await _readFullState(handle, accessToken);
+  if (!remoteState) return null;
+
+  // Mark this timestamp as known BEFORE returning, so the next auto-save's
+  // own conflict check doesn't redundantly re-merge the same remote write.
+  _lastKnownSheetTimestamp = sheetTimestamp;
+
+  return _mergeStates(localState, remoteState);
+}
+
+// ---------------------------------------------------------------------------
+// _readFullState — private; used by conflict-merge and pull paths
 // ---------------------------------------------------------------------------
 //
-// Does NOT update _lastKnownSheetTimestamp. We're mid-merge and about to
-// overwrite the Sheet with a new nowMs timestamp — updating it here would
-// be misleading and would cause the post-write assignment to be a no-op.
+// Does NOT update _lastKnownSheetTimestamp itself — callers decide when
+// (saveStateToSheet updates it post-write; pullRemoteChanges updates it
+// right after this read since there's no write to wait for).
 
 async function _readFullState(
   handle: SheetHandle,
@@ -426,11 +491,19 @@ async function _writeStateToSheet(
     data.push({ range: "Daily_Log!A1", values: rows });
   }
 
-  // Profile
+  // Profile — now also writes profileUpdatedAt / settingsUpdatedAt so the
+  // next merge (on any device) can tell which side's profile/settings is
+  // actually newer instead of guessing.
   if (state.profile !== undefined || state.settings !== undefined) {
     const rows: unknown[][] = [["key", "value"]];
-    if (state.profile !== undefined) rows.push(["profile", JSON.stringify(state.profile)]);
-    if (state.settings !== undefined) rows.push(["settings", JSON.stringify(state.settings)]);
+    if (state.profile !== undefined) {
+      rows.push(["profile", JSON.stringify(state.profile)]);
+      rows.push(["profileUpdatedAt", String(state.profileUpdatedAt ?? Date.now())]);
+    }
+    if (state.settings !== undefined) {
+      rows.push(["settings", JSON.stringify(state.settings)]);
+      rows.push(["settingsUpdatedAt", String(state.settingsUpdatedAt ?? Date.now())]);
+    }
     data.push({ range: "Profile!A1", values: rows });
   }
 
@@ -446,6 +519,7 @@ async function _writeStateToSheet(
       "mess",
       "workoutPhases",
       "skinLogs",
+      "sleepLogs",
       "books",
       "readingSessions",
       "chat",
@@ -499,8 +573,8 @@ function _mergeStates(
 ): Partial<AppState> {
   // Start with local as the base. This preserves:
   //   - Fields not stored in the Sheet (signedIn, onboarded)
-  //   - Local-wins fields without explicit merge rules:
-  //     profile, settings, dietPhases, workoutPhases, mess, supplements
+  //   - Local-wins fields with no explicit merge rule below:
+  //     dietPhases, workoutPhases, mess (rarely edited from 2 devices at once)
   const merged: Partial<AppState> = { ...local };
 
   // Append-only collections: union by id, never drop entries from either device.
@@ -517,12 +591,33 @@ function _mergeStates(
   // Per-date data: union across dates, per-type strategy within same date.
   merged.days = _mergeDays(local.days ?? [], remote.days ?? []);
   merged.skinLogs = _mergeSkinLogs(local.skinLogs ?? [], remote.skinLogs ?? []);
+  merged.sleepLogs = _mergeSleepLogs(local.sleepLogs ?? [], remote.sleepLogs ?? []);
 
   // Books: union by id, max pagesRead, local wins for metadata.
   merged.books = _mergeBooks(local.books ?? [], remote.books ?? []);
 
-  // Remaining fields (dietPhases, workoutPhases, mess, supplements,
-  // profile, settings) stay as-is from local (local-wins, already spread above).
+  // Supplements: union by id (so a supplement added on ONE device is never
+  // dropped when the OTHER device saves), min(stock) on conflict — see the
+  // top-of-file doc comment for why min() is the right call today.
+  merged.supplements = _mergeSupplements(local.supplements ?? [], remote.supplements ?? []);
+
+  // Scalars — pick whichever side actually saved more recently instead of
+  // blindly trusting local. Falls back to local-wins only if neither side
+  // has a timestamp yet (very old data, pre-this-fix). Carrying forward the
+  // WINNING timestamp (not Date.now()) keeps the next comparison accurate.
+  const localProfileTs  = local.profileUpdatedAt  ?? 0;
+  const remoteProfileTs = remote.profileUpdatedAt ?? 0;
+  if (remoteProfileTs > localProfileTs && remote.profile !== undefined) {
+    merged.profile = remote.profile;
+    merged.profileUpdatedAt = remoteProfileTs;
+  }
+
+  const localSettingsTs  = local.settingsUpdatedAt  ?? 0;
+  const remoteSettingsTs = remote.settingsUpdatedAt ?? 0;
+  if (remoteSettingsTs > localSettingsTs && remote.settings !== undefined) {
+    merged.settings = remote.settings;
+    merged.settingsUpdatedAt = remoteSettingsTs;
+  }
 
   return merged;
 }
@@ -592,6 +687,19 @@ function _mergeSkinLogs(local: SkinLog[], remote: SkinLog[]): SkinLog[] {
 }
 
 /**
+ * Merge SleepLog arrays. Same strategy as SkinLog — local wins on same date
+ * (no sub-entry ids / updatedAt on this struct yet).
+ */
+function _mergeSleepLogs(local: SleepLog[], remote: SleepLog[]): SleepLog[] {
+  const byDate = new Map<string, SleepLog>();
+
+  for (const log of remote) byDate.set(log.date, log);
+  for (const log of local)  byDate.set(log.date, log);
+
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+/**
  * Merge Book arrays.
  *   Book only on one device → keep it.
  *   Same id on both → local wins for all metadata; pagesRead = max of both
@@ -617,6 +725,35 @@ function _mergeBooks(local: Book[], remote: Book[]): Book[] {
         completed: pagesRead >= localBook.totalPages,
       });
     }
+  }
+
+  return [...byId.values()];
+}
+
+/**
+ * Merge Supplement (definition) arrays.
+ *   Supplement only on one device → keep it (fixes a supplement silently
+ *   disappearing from the Sheet the next time the OTHER device saves).
+ *   Same id on both → local wins for name/unit/defaultDose; stock = min of
+ *   both, since stock is monotonically non-increasing in the current UI
+ *   (see top-of-file doc comment).
+ */
+function _mergeSupplements(
+  local: AppState["supplements"],
+  remote: AppState["supplements"],
+): AppState["supplements"] {
+  const byId = new Map<string, AppState["supplements"][number]>();
+
+  for (const sup of remote) byId.set(sup.id, sup);
+
+  for (const localSup of local) {
+    const remoteSup = byId.get(localSup.id);
+    byId.set(
+      localSup.id,
+      remoteSup
+        ? { ...localSup, stock: Math.min(localSup.stock, remoteSup.stock) }
+        : localSup,
+    );
   }
 
   return [...byId.values()];
@@ -651,6 +788,11 @@ function _parseProfile(rows: string[][]): Partial<AppState> {
   const settings = safeJson(map.get("settings"), null);
   if (profile  !== null) out.profile  = profile;
   if (settings !== null) out.settings = settings;
+  // Per-field timestamps — used by _mergeStates to pick the genuinely newer
+  // side instead of always favoring local. Old sheets won't have these rows
+  // yet; default to 0 so an old remote never wins against a real local edit.
+  out.profileUpdatedAt  = parseInt(map.get("profileUpdatedAt")  ?? "0", 10) || 0;
+  out.settingsUpdatedAt = parseInt(map.get("settingsUpdatedAt") ?? "0", 10) || 0;
   return out;
 }
 
@@ -667,6 +809,7 @@ function _parseConfig(configMap: Map<string, string>): Partial<AppState> {
     "mess",
     "workoutPhases",
     "skinLogs",
+    "sleepLogs",
     "books",
     "readingSessions",
     "chat",

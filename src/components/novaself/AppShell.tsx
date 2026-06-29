@@ -18,6 +18,7 @@ const nav = [
 const moreNav = [
   { to: "/workout", label: "Workout", icon: Dumbbell },
   { to: "/skin", label: "Skin & Hair", icon: Sparkles },
+  { to: "/sleep", label: "Sleep", icon: Moon },
   { to: "/supplements", label: "Supplements", icon: Pill },
   { to: "/books", label: "Books", icon: BookOpen },
   { to: "/chat", label: "AI Chat", icon: MessageSquare, gated: true },
