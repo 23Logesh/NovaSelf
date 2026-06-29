@@ -45,14 +45,9 @@ function computeStreak(set: Set<string>): number {
 // violet use raw oklch values matching the ProgressRing constants so the
 // dashboard feels consistent.
 // ---------------------------------------------------------------------------
-const CATEGORY_META: Record
-  TimelineCategory,
-  {
-    icon: LucideIcon;
-    color: string;
-    bgAlpha: string;
-  }
-> = {
+type CategoryMeta = { icon: LucideIcon; color: string; bgAlpha: string };
+
+const CATEGORY_META: Record<TimelineCategory, CategoryMeta> = {
   workout:    { icon: Dumbbell,  color: "var(--electric)",          bgAlpha: "color-mix(in oklab, var(--electric) 15%, transparent)" },
   food:       { icon: Salad,     color: "var(--neon)",              bgAlpha: "color-mix(in oklab, var(--neon) 15%, transparent)" },
   water:      { icon: Droplets,  color: "oklch(0.78 0.18 60)",      bgAlpha: "color-mix(in oklab, oklch(0.78 0.18 60) 15%, transparent)" },
