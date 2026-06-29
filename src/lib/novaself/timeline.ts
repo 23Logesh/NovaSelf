@@ -58,7 +58,7 @@ const CATEGORY_ORDER: TimelineCategory[] = [
  */
 export function buildDailyTimeline(
   date: string,
-    state: Pick
+    state: Pick<
     AppState,
     | "days"
     | "skinLogs"
