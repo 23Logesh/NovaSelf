@@ -7,23 +7,25 @@ import { useApp } from "@/lib/novaself/store";
 
 export default function Chat() {
   const { settings, chat, sendChat } = useApp();
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const endRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, sending]);
+
   // FR-37: AI Chat is only reachable when an Ollama URL is actually
   // configured — no separate manual enable switch anymore.
   if (!settings.ollamaUrl.trim()) return <Navigate to="/settings" replace />;
 
-  const [text, setText] = useState("");
-  const endRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat]);
-
-  function send() {
+  async function send() {
     const t = text.trim();
-    if (!t) return;
-    // TODO (next phase): replace store.sendChat()'s echo with a real call to
-    // `${settings.ollamaUrl}/api/chat`, POSTing the FULL accumulated
-    // `chat` array (not just this one message) as the `messages` field so
-    // the model has the whole conversation's context (FR-38).
-    sendChat(t);
+    if (!t || sending) return;
     setText("");
+    setSending(true);
+    try {
+      await sendChat(t);
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -35,7 +37,7 @@ export default function Chat() {
           <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
             <Sparkles className="mb-3 h-10 w-10 text-[var(--electric)]" />
             <p className="font-display text-lg">Ask anything about your training, diet, or stats.</p>
-            <p className="mt-1 text-sm">This is a placeholder echo — wire to Ollama in /settings.</p>
+            <p className="mt-1 text-sm">Connects live to your Ollama server configured in /settings.</p>
           </div>
         )}
         <div className="space-y-3">
@@ -48,15 +50,22 @@ export default function Chat() {
               }`}>{m.content}</div>
             </div>
           ))}
+          {sending && (
+            <div className="flex justify-start">
+              <div className="max-w-[80%] rounded-2xl border border-border bg-[var(--surface-elevated)] px-4 py-2.5 text-sm text-muted-foreground">
+                Thinking…
+              </div>
+            </div>
+          )}
           <div ref={endRef} />
         </div>
       </NCard>
 
       <div className="flex gap-2">
         <input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="Type a message…"
-          className="flex-1 rounded-2xl border border-border bg-[var(--surface)] px-4 py-3 text-sm outline-none focus:border-[var(--electric)]" />
-        <button onClick={send} className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--electric)] text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)]">
+          placeholder="Type a message…" disabled={sending}
+          className="flex-1 rounded-2xl border border-border bg-[var(--surface)] px-4 py-3 text-sm outline-none focus:border-[var(--electric)] disabled:opacity-60" />
+        <button onClick={send} disabled={sending} className="grid h-12 w-12 place-items-center rounded-2xl bg-[var(--electric)] text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)] disabled:opacity-60">
           <Send className="h-5 w-5" />
         </button>
       </div>

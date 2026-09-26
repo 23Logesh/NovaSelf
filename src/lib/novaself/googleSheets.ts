@@ -62,10 +62,13 @@
 //     pattern as intakes.
 //
 //   Whole-list configs (dietPhases, workoutPhases, mess):
-//     Local wins entirely. TRADEOFF: an item added to one of these lists on
-//     a remote device can be lost if the local device saves before the remote
-//     syncs. Accepted because these lists are edited rarely and true per-item
-//     merging would require change-tracking not present in the current schema.
+//     Union by id (same pattern as intakes/readingSessions/chat). An item
+//     added on either device survives a merge. NOTE: this still doesn't do
+//     field-level merging *inside* an unchanged-id item (e.g. renaming a
+//     phase on both devices between syncs) — whichever side is "local" in
+//     that particular _mergeStates call keeps its version of that id. True
+//     field-level merging would need per-item change-tracking not present
+//     in the current schema.
 //
 //   Scalars (profile, settings):
 //     Whichever side has the newer profileUpdatedAt / settingsUpdatedAt wins
@@ -576,6 +579,17 @@ function _mergeStates(
   //   - Local-wins fields with no explicit merge rule below:
   //     dietPhases, workoutPhases, mess (rarely edited from 2 devices at once)
   const merged: Partial<AppState> = { ...local };
+
+  // dietPhases/mess/workoutPhases used to be blind "local wins" here, which
+  // meant editing a workout plan on one device could be silently wiped out
+  // the moment another device's autosave fired afterward. All three items
+  // carry stable `id`s, so union by id instead — a phase/day/mess item added
+  // on either device survives, and same-id edits keep whichever side wrote
+  // this merge's "local" (still not perfect field-level merging inside a
+  // phase, but no more full-array data loss).
+  merged.dietPhases = _unionById(local.dietPhases ?? [], remote.dietPhases ?? []);
+  merged.mess = _unionById(local.mess ?? [], remote.mess ?? []);
+  merged.workoutPhases = _unionById(local.workoutPhases ?? [], remote.workoutPhases ?? []);
 
   // Append-only collections: union by id, never drop entries from either device.
   merged.intakes = _unionById(local.intakes ?? [], remote.intakes ?? []);
