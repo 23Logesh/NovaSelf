@@ -12,7 +12,7 @@ import {
   defaultReading, defaultSettings, defaultSkinLogs, defaultSleepLogs, defaultSupplements,
   defaultWorkoutPhases, emptyUserState,
 } from "./mockData";
-import { signInWithGoogle, signOutOfGoogle, initGoogleAuth } from "./googleAuth";
+import { goToGoogleLogin, fetchAccessToken, signOutOfGoogle } from "./googleAuth";
 import {
   ensureUserSheet, loadStateFromSheet, saveStateToSheet, syncToSheet as _syncToSheet,
   pullRemoteChanges, type SheetHandle,
@@ -28,13 +28,10 @@ export interface GoogleAccount {
 export interface AppState {
   signedIn: boolean;
   onboarded: boolean;
-  /** Google profile from the most recent successful sign-in. Null when signed out. */
   googleAccount: GoogleAccount | null;
   profile: Profile;
-  /** Bumped on every saveProfile() call — used to resolve multi-device merge conflicts. */
   profileUpdatedAt: number;
   settings: AppSettings;
-  /** Bumped on every settings change — used to resolve multi-device merge conflicts. */
   settingsUpdatedAt: number;
   days: DayLog[];
   dietPhases: DietPhase[];
@@ -52,7 +49,8 @@ export interface AppState {
 interface AppActions {
   signInGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-  reconnectGoogle: () => Promise<void>; // Re-auth from user gesture; flushes pending changes
+  reconnectGoogle: () => Promise<void>;
+  restoreSession: () => Promise<boolean>;
   saveProfile: (p: Partial<Profile>) => void;
   updateSettings: (s: Partial<AppSettings>) => void;
   toggleNutrient: (key: keyof AppSettings["enabledNutrients"]) => void;
@@ -70,7 +68,6 @@ interface AppActions {
   upsertSleep: (s: SleepLog) => void;
   setSupplements: (s: Supplement[]) => void;
   logIntake: (i: SupplementIntake) => void;
-  /** Undo a previously logged intake — restores the consumed amount back to stock. */
   removeIntake: (intakeId: string) => void;
   setBooks: (b: Book[]) => void;
   logReading: (s: ReadingSession) => void;
@@ -82,7 +79,6 @@ interface AppActions {
   sheetHandle: SheetHandle | null;
   sheetLoadWarning: string | null;
   clearSheetLoadWarning: () => void;
-  /** True when the Google session has expired and the user needs to reconnect. */
   sessionExpired: boolean;
 }
 
@@ -92,13 +88,6 @@ const AppCtx = createContext<Ctx | null>(null);
 const STORAGE_KEY = "novaself.v1";
 const SHEET_HANDLE_KEY = "novaself.sheetHandle";
 
-// ---------------------------------------------------------------------------
-// _memAccessToken: the ONLY place the current access token lives at runtime.
-// It is a module-level variable (in-memory only, never persisted).
-// After a page reload it is null — this is expected. The auto-save effect
-// checks this directly and will NOT call getValidAccessToken() or trigger any
-// interactive popup. Instead it sets sessionExpired so the user is informed.
-// ---------------------------------------------------------------------------
 let _memAccessToken: string | null = null;
 let _memSheetHandle: SheetHandle | null = null;
 
@@ -162,30 +151,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadInitial());
   const [sheetHandle, setSheetHandle] = useState<SheetHandle | null>(() => loadStoredSheetHandle());
   const [sheetLoadWarning, setSheetLoadWarning] = useState<string | null>(null);
-  // sessionExpired: true when we have a sheet handle but the in-memory token
-  // is gone (page reload or natural expiry). Cleared after successful reconnect.
   const [sessionExpired, setSessionExpired] = useState(false);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Keep a stable ref to current state so the reconnect flush always sends latest data.
   const stateRef = useRef<AppState>(state);
   useEffect(() => { stateRef.current = state; }, [state]);
 
-  // ---------------------------------------------------------------------------
-  // Eagerly initialize GIS as soon as the component mounts so that
-  // _tokenClient is ready before the user ever clicks Reconnect or Sign In.
-  // Without this, the first click would need to await getTokenClient() which
-  // breaks the browser's user-gesture requirement and blocks the OAuth popup.
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    initGoogleAuth().catch((err) => {
-      console.warn("[store] GIS init failed on mount:", err);
-    });
-  }, []);
-
-  // ---------------------------------------------------------------------------
-  // Persist to localStorage on every state change (always reliable).
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -196,14 +167,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [state]);
 
-  // ---------------------------------------------------------------------------
-  // Debounced auto-save to Google Sheets.
-  //
-  // DESIGN: This effect NEVER calls getValidAccessToken() and NEVER triggers
-  // an interactive OAuth popup. It only uses _memAccessToken (in-memory).
-  // If the token is absent (page reload, expiry), it sets sessionExpired=true
-  // so a visible banner appears. localStorage has already saved everything.
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!state.signedIn || !sheetHandle) return;
 
@@ -212,8 +175,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     saveTimerRef.current = setTimeout(async () => {
       console.log("[store] Auto-save: debounce fired, checking token…");
 
-      // CRITICAL: check in-memory token directly. Never call getValidAccessToken()
-      // here — that can trigger an interactive popup automatically.
       if (!_memAccessToken) {
         console.warn(
           "[store] Auto-save: no in-memory token (session expired or page reloaded). " +
@@ -227,14 +188,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       try {
         await saveStateToSheet(sheetHandle, _memAccessToken, state);
         console.log("[store] ✓ Auto-save to Sheet succeeded");
-        // Clear the expired flag if it was set from a prior failed attempt
-        // that has since been resolved (reconnect sets the token, then flushes,
-        // then state changes again — we clear here on success).
         setSessionExpired(false);
       } catch (err) {
         console.error("[store] ✗ Auto-save to Sheet failed (token may have expired mid-session):", err);
-        // Invalidate the in-memory token so next attempt shows the banner
-        // rather than hammering a bad token repeatedly.
         _memAccessToken = null;
         setSessionExpired(true);
       }
@@ -245,21 +201,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state, sheetHandle]);
 
-  // ---------------------------------------------------------------------------
-  // NEW — Background pull. Keeps THIS device in sync with changes made on
-  // OTHER devices even when you make no local edits here (e.g. you log
-  // supplements on mobile, then come back to a laptop tab that's just
-  // sitting open with nothing new typed into it).
-  //
-  // Runs: once immediately, on tab visibility/focus, and every 45s while
-  // signed in. Reuses pullRemoteChanges() in googleSheets.ts — same
-  // Config!A:B lastModified check + _mergeStates() merge used by the
-  // save-time conflict check, no duplicated logic.
-  //
-  // Never triggers an interactive OAuth popup — if _memAccessToken is
-  // missing it silently skips (the auto-save effect above already shows
-  // the reconnect banner for that case).
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!state.signedIn || !sheetHandle) return;
 
@@ -285,7 +226,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.addEventListener("focus", tryPull);
     const interval = setInterval(tryPull, 45_000);
 
-    // Pull once right away too, in case data changed while this tab was closed.
     tryPull();
 
     return () => {
@@ -296,9 +236,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [state.signedIn, sheetHandle]);
 
-  // ---------------------------------------------------------------------------
-  // Theme sync
-  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;
@@ -306,16 +243,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     root.classList.toggle("dark", state.settings.theme === "dark");
   }, [state.settings.theme]);
 
-  // ---------------------------------------------------------------------------
-  // reconnectGoogle: called ONLY from an explicit user button press.
-  // Runs an interactive OAuth flow, stores the fresh token, then immediately
-  // flushes the current state to the Sheet so nothing buffered in localStorage
-  // is lost.
-  // ---------------------------------------------------------------------------
   const reconnectGoogle = useCallback(async () => {
-    console.log("[store] reconnectGoogle: starting interactive re-auth…");
+    console.log("[store] reconnectGoogle: fetching fresh access token from backend…");
     try {
-      const authResult = await signInWithGoogle();
+      const authResult = await fetchAccessToken();
+      if (!authResult) {
+        console.warn("[store] reconnectGoogle: no valid backend session — user must sign in fully");
+        return;
+      }
       _memAccessToken = authResult.accessToken;
       console.log("[store] reconnectGoogle: ✓ fresh token obtained");
 
@@ -331,7 +266,76 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setSessionExpired(false);
     } catch (err) {
-      console.error("[store] reconnectGoogle: ✗ re-auth or flush failed:", err);
+      console.error("[store] reconnectGoogle: ✗ token fetch or flush failed:", err);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheetHandle]);
+
+  const restoreSession = useCallback(async (): Promise<boolean> => {
+    const authResult = await fetchAccessToken();
+    if (!authResult) {
+      console.log("[store] restoreSession: no valid backend session");
+      return false;
+    }
+    _memAccessToken = authResult.accessToken;
+
+    const googleAccount: GoogleAccount = { email: authResult.email, name: authResult.name };
+
+    if (sheetHandle) {
+      console.log("[store] restoreSession: ✓ token restored for existing sheet handle");
+      setSessionExpired(false);
+      setState((s) => ({ ...s, googleAccount, signedIn: true }));
+      return true;
+    }
+
+    try {
+      const { handle, isNewlyCreated } = await ensureUserSheet(authResult.accessToken);
+      _memSheetHandle = handle;
+      setSheetHandle(handle);
+      storeSheetHandle(handle);
+      setSessionExpired(false);
+
+      if (isNewlyCreated) {
+        setState((s) => ({
+          ...s,
+          ...emptyUserState(),
+          settings: s.settings,
+          googleAccount,
+          signedIn: true,
+          onboarded: false,
+        }));
+        return true;
+      }
+
+      let sheetState: Partial<AppState> | null = null;
+      try {
+        sheetState = await loadStateFromSheet(handle, authResult.accessToken);
+      } catch (err) {
+        console.error("[store] restoreSession: ✗ loadStateFromSheet threw:", err);
+      }
+
+      const loadReturnedData = (sheetState?.days && sheetState.days.length > 0) || !!sheetState?.profile;
+
+      if (loadReturnedData) {
+        setState((s) => ({
+          ...s,
+          ...(sheetState ?? {}),
+          settings: { ...defaultSettings, ...(sheetState?.settings ?? {}) },
+          googleAccount,
+          signedIn: true,
+          onboarded: true,
+        }));
+      } else {
+        setSheetLoadWarning(
+          "Couldn't load your data from Google Sheets right now (network issue). " +
+          "Your local data is safe — tap Sync in Settings to retry.",
+        );
+        setState((s) => ({ ...s, googleAccount, signedIn: true }));
+      }
+      return true;
+    } catch (err) {
+      console.error("[store] restoreSession: ✗ ensureUserSheet failed:", err);
+      return false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheetHandle]);
@@ -346,67 +350,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       sessionExpired,
       clearSheetLoadWarning: () => setSheetLoadWarning(null),
       reconnectGoogle,
+      restoreSession,
 
       signInGoogle: async () => {
-        console.log("[store] signInGoogle: starting interactive sign-in…");
-        const authResult = await signInWithGoogle();
-        _memAccessToken = authResult.accessToken;
-        console.log("[store] signInGoogle: ✓ token obtained");
-
-        const googleAccount: GoogleAccount = {
-          email: authResult.email,
-          name: authResult.name,
-        };
-
-        const { handle, isNewlyCreated } = await ensureUserSheet(authResult.accessToken);
-        _memSheetHandle = handle;
-        setSheetHandle(handle);
-        storeSheetHandle(handle);
-        setSessionExpired(false);
-        console.log("[store] signInGoogle: sheet handle stored, isNewlyCreated=", isNewlyCreated);
-
-        if (isNewlyCreated) {
-          update({
-            ...emptyUserState(),
-            settings: state.settings,
-            googleAccount,
-            signedIn: true,
-            onboarded: false,
-          });
-          return;
-        }
-
-        let sheetState: Partial<AppState> | null = null;
-        try {
-          console.log("[store] signInGoogle: loading state from Sheet…");
-          sheetState = await loadStateFromSheet(handle, authResult.accessToken);
-          console.log("[store] signInGoogle: ✓ Sheet state loaded");
-        } catch (err) {
-          console.error("[store] signInGoogle: ✗ loadStateFromSheet threw:", err);
-        }
-
-        const loadReturnedData =
-          (sheetState?.days && sheetState.days.length > 0) || !!sheetState?.profile;
-
-        if (loadReturnedData) {
-          update({
-            ...(sheetState ?? {}),
-            settings: { ...defaultSettings, ...(sheetState?.settings ?? {}) },
-            googleAccount,
-            signedIn: true,
-            onboarded: true,
-          });
-        } else {
-          console.warn(
-            "[store] signInGoogle: existing Sheet returned empty data. " +
-            "Likely a transient fetch error. Local state preserved.",
-          );
-          setSheetLoadWarning(
-            "Couldn't load your data from Google Sheets right now (network issue). " +
-            "Your local data is safe — tap Sync in Settings to retry.",
-          );
-          update({ googleAccount, signedIn: true });
-        }
+        console.log("[store] signInGoogle: redirecting to backend OAuth login…");
+        goToGoogleLogin();
       },
 
       signOut: async () => {
@@ -547,7 +495,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ),
         })),
 
-      // Undo: removes the intake row and gives the consumed amount back to stock.
       removeIntake: (intakeId) =>
         setState((s) => {
           const target = s.intakes.find((i) => i.id === intakeId);
@@ -603,10 +550,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSessionExpired(false);
         setState(baseState());
       },
-
-      // saveData, loadData, syncToSheet: also NEVER call getValidAccessToken().
-      // They check _memAccessToken directly and return early with a clear log
-      // if it's absent. The user must reconnect via the banner first.
 
       saveData: async () => {
         if (!sheetHandle) { console.warn("[store] saveData: no sheet handle, skipping"); return; }
@@ -666,7 +609,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       },
     };
-  }, [state, sheetHandle, sheetLoadWarning, sessionExpired, reconnectGoogle]);
+  }, [state, sheetHandle, sheetLoadWarning, sessionExpired, reconnectGoogle, restoreSession]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

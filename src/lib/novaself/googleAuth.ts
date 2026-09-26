@@ -1,209 +1,85 @@
 // ============================================================================
-// Google Identity Services (GIS) — real OAuth token client implementation.
+// Auth client for the NovaSelf OAuth-proxy backend (Spring Boot on Render).
 // ============================================================================
 //
-// ARCHITECTURE:
-// - Zero backend. All auth happens browser-side via GIS (accounts.google.com/gsi/client).
-// - Uses the implicit/token flow (initTokenClient), NOT the ID token / One Tap flow,
-//   because we need an access token to call Drive/Sheets REST APIs directly.
-// - The GIS script is loaded in index.html (async defer). We gate all calls behind
-//   a waitForGIS() helper that polls until window.google is available.
-// - Access tokens last ~1 hour. After expiry, callers show a reconnect banner so the
-//   user can re-auth with a real button click (never auto-popup from background saves).
-// - signOutOfGoogle() revokes the token so GIS clears its internal session.
+// ARCHITECTURE (replaces the old zero-backend GIS implicit-token flow):
+// - Sign-in is a full-page redirect: browser -> our backend /auth/login ->
+//   Google consent -> backend /auth/callback -> back to our frontend.
+// - The backend stores Google's refresh_token server-side and hands us back
+//   an HttpOnly cookie. We never see or store the refresh token.
+// - To get a usable access token, call fetchAccessToken(). The backend
+//   transparently refreshes via the stored refresh token when needed — no
+//   popup, no user gesture required, works silently on every page load.
+// - Access tokens still last ~1hr, but callers no longer need to care: just
+//   call fetchAccessToken() again when a Sheets call gets a 401, or on any
+//   page load / focus. There is no more "expired forever until reconnect" —
+//   as long as the backend session cookie is valid, a fresh token is always
+//   one fetch away.
 //
-// CRITICAL: GIS's requestAccessToken() MUST be called synchronously within a
-// browser user-gesture (click) handler. Any await before the call — including
-// awaiting getTokenClient() — breaks the gesture requirement and GIS either
-// silently fails or shows a popup that gets blocked. To guarantee synchronous
-// calling, initTokenClient is run eagerly on first waitForGIS() resolution and
-// the result is cached. requestToken() is then safe to call from an onClick.
+// IMPORTANT: set VITE_AUTH_BACKEND_URL in your .env / GitHub Pages build to
+// your deployed Render URL, e.g. https://novaself-authproxy.onrender.com
 
-export const GOOGLE_CLIENT_ID =
-  "93341990094-bq2u0f1p4bvj99b1lakc9jaev8s5fk6s.apps.googleusercontent.com";
-
-const SCOPES = [
-  "https://www.googleapis.com/auth/drive.file",
-  "https://www.googleapis.com/auth/spreadsheets",
-  "openid",
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/userinfo.profile",
-].join(" ");
+const BACKEND_URL: string =
+  (import.meta.env.VITE_AUTH_BACKEND_URL as string | undefined) ?? "http://localhost:8080";
 
 export interface GoogleAuthResult {
-  /** Google's "sub" claim — stable per-account unique ID. */
   googleUserId: string;
   email: string;
   name: string;
   pictureUrl?: string;
-  /** OAuth access token. Hand to googleSheets.ts. Do NOT persist to localStorage. */
+  /** Short-lived OAuth access token. Hand to googleSheets.ts. Do NOT persist to localStorage. */
   accessToken: string;
 }
 
-// ---------------------------------------------------------------------------
-// Internal state — in-memory only, never touches localStorage.
-// ---------------------------------------------------------------------------
-let _accessToken: string | null = null;
-let _tokenExpiry: number = 0;
-
-// The GIS TokenClient — initialized once as soon as GIS loads, then reused.
-// It MUST be initialized before any interactive requestAccessToken call so that
-// the call itself is synchronous within the user gesture.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let _tokenClient: any = null;
-
-// Promise that resolves when GIS is ready and _tokenClient is initialized.
-let _initPromise: Promise<void> | null = null;
-
-// ---------------------------------------------------------------------------
-// GIS availability guard
-// ---------------------------------------------------------------------------
-function waitForGIS(timeoutMs = 10_000): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const deadline = Date.now() + timeoutMs;
-    const check = () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((window as any).google?.accounts?.oauth2) {
-        resolve();
-      } else if (Date.now() > deadline) {
-        reject(new Error("[googleAuth] GIS script did not load in time. Check index.html."));
-      } else {
-        setTimeout(check, 100);
-      }
-    };
-    check();
-  });
+/**
+ * Public: kick off the interactive sign-in flow.
+ * This is a full browser navigation — it does NOT return a token. The page
+ * will unload. When Google + our backend finish, the browser lands back on
+ * "/" with a session cookie set; call fetchAccessToken() from there.
+ */
+export function goToGoogleLogin(): void {
+  window.location.href = `${BACKEND_URL}/auth/login`;
 }
 
-// ---------------------------------------------------------------------------
-// Public: eagerly initialize the token client.
-// Call this as early as possible (e.g. app mount) so _tokenClient is ready
-// before any user clicks Reconnect or Sign In. This makes requestToken()
-// safe to call synchronously from a click handler.
-// ---------------------------------------------------------------------------
-export function initGoogleAuth(): Promise<void> {
-  if (_initPromise) return _initPromise;
-  _initPromise = waitForGIS().then(() => {
-    if (!_tokenClient) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      _tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: SCOPES,
-        callback: () => {}, // overridden per-request
-      });
-      console.log("[googleAuth] TokenClient initialized");
-    }
-  });
-  return _initPromise;
-}
-
-// ---------------------------------------------------------------------------
-// Internal: request a token.
-// REQUIRES _tokenClient to already be initialized (call initGoogleAuth() first).
-// `prompt`:
-//   ""     — default GIS behaviour (shows consent on first use, silent after)
-//   "none" — silent only; rejects if interaction would be needed
-//
-// IMPORTANT: client.requestAccessToken() must be called synchronously from a
-// user-gesture handler. Do NOT await anything before calling this from a click.
-// ---------------------------------------------------------------------------
-interface TokenResponse {
-  access_token: string;
-  expires_in: number;
-  error?: string;
-}
-
-function requestToken(prompt: "" | "none"): Promise<TokenResponse> {
-  return new Promise((resolve, reject) => {
-    if (!_tokenClient) {
-      reject(new Error("[googleAuth] TokenClient not initialized. Call initGoogleAuth() first."));
-      return;
-    }
-    _tokenClient.callback = (resp: TokenResponse) => {
-      if (resp.error) {
-        reject(new Error(`[googleAuth] Token error: ${resp.error}`));
-      } else {
-        resolve(resp);
-      }
-    };
-    // This call is synchronous — it schedules the OAuth popup/flow immediately.
-    // It MUST happen within a user-gesture event handler to avoid popup blocking.
-    _tokenClient.requestAccessToken({ prompt });
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Internal: store a token response.
-// ---------------------------------------------------------------------------
-function storeToken(resp: TokenResponse) {
-  _accessToken = resp.access_token;
-  _tokenExpiry = Date.now() + (resp.expires_in - 60) * 1000;
-}
-
-// ---------------------------------------------------------------------------
-// Public: sign in interactively.
-// MUST be called directly from a user-gesture handler (onClick).
-// Assumes initGoogleAuth() has already resolved.
-// ---------------------------------------------------------------------------
-export async function signInWithGoogle(): Promise<GoogleAuthResult> {
-  const resp = await requestToken("");
-  storeToken(resp);
-
-  const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-    headers: { Authorization: `Bearer ${_accessToken}` },
-  });
-  if (!profileRes.ok) {
-    throw new Error(`[googleAuth] Failed to fetch user profile: ${profileRes.status}`);
-  }
-  const profile = await profileRes.json();
-
-  return {
-    googleUserId: profile.sub,
-    email: profile.email,
-    name: profile.name,
-    pictureUrl: profile.picture,
-    accessToken: _accessToken!,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Public: attempt a silent session restore on app load (no user gesture).
-// Returns null if the user needs to sign in interactively.
-// ---------------------------------------------------------------------------
-export async function restoreGoogleSession(): Promise<GoogleAuthResult | null> {
+/**
+ * Public: get a currently-valid access token for the signed-in user, silently
+ * refreshing server-side if needed. Returns null if there's no valid session
+ * (never signed in, or the refresh token itself was revoked/expired) — in
+ * that case the caller should send the user through goToGoogleLogin() again.
+ * Safe to call on every page load / tab focus — never shows a popup.
+ */
+export async function fetchAccessToken(): Promise<GoogleAuthResult | null> {
   try {
-    await initGoogleAuth(); // ensure client is ready
-    const resp = await requestToken("none");
-    storeToken(resp);
-
-    const profileRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
-      headers: { Authorization: `Bearer ${_accessToken}` },
+    const res = await fetch(`${BACKEND_URL}/auth/token`, {
+      method: "GET",
+      credentials: "include", // send the HttpOnly session cookie
     });
-    if (!profileRes.ok) return null;
-    const profile = await profileRes.json();
-
+    if (!res.ok) return null;
+    const data = await res.json();
     return {
-      googleUserId: profile.sub,
-      email: profile.email,
-      name: profile.name,
-      pictureUrl: profile.picture,
-      accessToken: _accessToken!,
+      googleUserId: data.googleUserId,
+      email: data.email,
+      name: data.name,
+      pictureUrl: data.pictureUrl,
+      accessToken: data.accessToken,
     };
-  } catch {
+  } catch (err) {
+    console.warn("[googleAuth] fetchAccessToken failed (network/backend unreachable):", err);
     return null;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public: revoke the current token and clear internal state.
-// ---------------------------------------------------------------------------
+/**
+ * Public: sign out. Revokes the refresh token at Google (best-effort, server
+ * side) and clears the session cookie.
+ */
 export async function signOutOfGoogle(): Promise<void> {
-  if (!_accessToken) return;
-  const tokenToRevoke = _accessToken;
-  _accessToken = null;
-  _tokenExpiry = 0;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).google?.accounts?.oauth2?.revoke(tokenToRevoke, () => {
-    console.log("[googleAuth] Token revoked.");
-  });
+  try {
+    await fetch(`${BACKEND_URL}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+    });
+  } catch (err) {
+    console.warn("[googleAuth] signOutOfGoogle: backend logout call failed (clearing local state anyway):", err);
+  }
 }
