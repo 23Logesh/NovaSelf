@@ -172,8 +172,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Debounced autosave on local edits.
+  // Guard requires BOTH signedIn AND onboarded — this is the fix. Without
+  // `state.onboarded` here, a signed-in-but-not-yet-onboarded session could
+  // push the app's built-in sample/demo data to Drive as if it were real.
   useEffect(() => {
-    if (!state.signedIn) return;
+    if (!state.signedIn || !state.onboarded) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(doSync, 3000);
     return () => {
@@ -182,8 +185,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [state, doSync]);
 
   // Pick up other devices' edits on focus / tab-visible / a timer.
+  // Same guard fix as above.
   useEffect(() => {
-    if (!state.signedIn) return;
+    if (!state.signedIn || !state.onboarded) return;
     const onVisibility = () => { if (document.visibilityState === "visible") doSync(); };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", doSync);
@@ -193,7 +197,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("focus", doSync);
       clearInterval(interval);
     };
-  }, [state.signedIn, doSync]);
+  }, [state.signedIn, state.onboarded, doSync]);
 
   const reconnectGoogle = useCallback(async () => {
     const me = await fetchMe();
