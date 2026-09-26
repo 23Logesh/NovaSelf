@@ -1,28 +1,30 @@
 // ============================================================================
-// Sign-in / sign-out for the NovaSelf OAuth-proxy backend (Spring Boot on Render).
+// Sign-in / sign-out for the NovaSelf OAuth-proxy backend.
 // ============================================================================
-// The backend owns everything token-related now — refresh tokens, access
-// tokens, and every call to Google. The frontend just kicks off the login
-// redirect and tells the backend to sign out. See stateApi.ts for
-// fetchMe()/fetchState()/syncState() — how the frontend checks auth status
-// and loads/saves data.
+
+import { clearStoredToken, getStoredToken } from "./stateApi";
 
 const BACKEND_URL: string =
   (import.meta.env.VITE_AUTH_BACKEND_URL as string | undefined) ?? "http://localhost:8080";
 
-/** Full-page redirect into the backend's OAuth login flow. The page unloads — no return value. */
+/** Full-page redirect into the backend's OAuth login flow. */
 export function goToGoogleLogin(): void {
   window.location.href = `${BACKEND_URL}/auth/login`;
 }
 
-/** Revokes the refresh token at Google (best-effort, server-side) and clears the session cookie. */
+/** Revokes the refresh token at Google (best-effort) and clears the local token. */
 export async function signOutOfGoogle(): Promise<void> {
+  const token = getStoredToken();
   try {
-    await fetch(`${BACKEND_URL}/auth/logout`, {
-      method: "POST",
-      credentials: "include",
-    });
+    if (token) {
+      await fetch(`${BACKEND_URL}/auth/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
   } catch (err) {
-    console.warn("[googleAuth] signOutOfGoogle: backend logout call failed (clearing local state anyway):", err);
+    console.warn("[googleAuth] signOutOfGoogle: backend logout call failed (clearing local token anyway):", err);
+  } finally {
+    clearStoredToken();
   }
 }

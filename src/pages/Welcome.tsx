@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { Apple, ArrowRight, Sparkles } from "lucide-react";
 import { useApp } from "@/lib/novaself/store";
@@ -19,6 +19,19 @@ export default function Welcome() {
     weightKg: signedIn ? profile.weightKg : 0,
     goalWeightKg: signedIn ? profile.goalWeightKg : 0,
   }));
+
+  // Surfaces ?auth_error=... left in the URL by /auth/callback on the backend
+  // when Google sign-in itself failed (e.g. denied consent, exchange failure).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("auth_error");
+    if (authError) {
+      setError(`Sign-in failed (${authError}). Please try again.`);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("auth_error");
+      window.history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+    }
+  }, []);
 
   if (signedIn && onboarded) {
     return <Navigate to="/dashboard" replace />;
@@ -60,22 +73,12 @@ export default function Welcome() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground">
-      {/* ── Sign-in loading overlay ─────────────────────────────────────────
-          Shown for the full duration of handleSignInAndAdvance() — from the
-          moment the user clicks "Continue with Google" until signInGoogle()
-          resolves (success or error). Sits above everything else via z-50.
-          The Google popup still opens in front of this at the OS level, but
-          our overlay ensures our own page looks intentional, not abandoned.
-      ──────────────────────────────────────────────────────────────────── */}
       {signingIn && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-background/95 backdrop-blur-sm">
-          {/* Glows */}
           <div className="pointer-events-none absolute left-1/2 top-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--electric)] opacity-10 blur-[120px]" />
           <div className="pointer-events-none absolute left-1/2 top-1/2 h-[260px] w-[260px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--neon)] opacity-10 blur-[80px]" />
 
-          {/* Spinning logo ring */}
           <div className="relative">
-            {/* Outer spinning ring */}
             <svg
               className="absolute inset-0 -m-3 animate-spin"
               style={{ animationDuration: "2s" }}
@@ -99,13 +102,11 @@ export default function Welcome() {
               </defs>
             </svg>
 
-            {/* Logo icon in the centre */}
             <div className="grid h-[56px] w-[56px] place-items-center rounded-2xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_40px_var(--electric)]">
               <Apple className="h-7 w-7" />
             </div>
           </div>
 
-          {/* Text */}
           <div className="text-center">
             <p className="font-display text-lg font-semibold tracking-tight text-foreground">
               Signing you in…
@@ -117,7 +118,6 @@ export default function Welcome() {
         </div>
       )}
 
-      {/* ── Page background glows ────────────────────────────────────────── */}
       <div className="pointer-events-none absolute -left-20 -top-20 h-[500px] w-[500px] rounded-full bg-[var(--electric)] opacity-20 blur-[140px]" />
       <div className="pointer-events-none absolute -bottom-32 -right-16 h-[420px] w-[420px] rounded-full bg-[var(--neon)] opacity-20 blur-[140px]" />
 

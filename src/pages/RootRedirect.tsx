@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useApp } from "@/lib/novaself/store";
+import { captureSessionTokenFromUrl } from "@/lib/novaself/stateApi";
 
 type ResolveState = "pending" | "done";
 
@@ -8,7 +9,6 @@ export function RootRedirect() {
   const { signedIn, onboarded, restoreSession } = useApp();
 
   const [resolve, setResolve] = useState<ResolveState>(() => {
-    // Already signed in for this session — no async work needed.
     if (signedIn) return "done";
     return "pending";
   });
@@ -16,9 +16,10 @@ export function RootRedirect() {
   useEffect(() => {
     if (resolve === "done") return;
 
-    // Silently ask the backend whether we have a valid session (HttpOnly
-    // cookie) and, if so, get a fresh access token — refreshed server-side
-    // via the stored Google refresh token if needed. No popup, ever.
+    // Grab ?session_token=... left by /auth/callback (if we just came back
+    // from Google sign-in) before asking the backend anything.
+    captureSessionTokenFromUrl();
+
     let cancelled = false;
     (async () => {
       try {
