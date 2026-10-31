@@ -1,16 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Droplets, Dumbbell, Salad, Plus, X, Scale, Pill, Sparkles, BookOpen, Moon } from "lucide-react";
+import { Droplets, Dumbbell, Salad, Plus, X, Scale, Pill, Sparkles, BookOpen, Moon, Copy } from "lucide-react";
+import { toast } from "sonner";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
 import { SupplementIntakePanel } from "@/components/novaself/SupplementIntakePanel";
 import { SkinCheckIn } from "@/components/novaself/SkinCheckIn";
 import { SleepCheckIn } from "@/components/novaself/SleepCheckIn";
 import { ReadingSessionForm } from "@/components/novaself/ReadingSessionForm";
+import { MiniTrendChart } from "@/components/novaself/MiniTrendChart";
 import { useApp, today } from "@/lib/novaself/store";
-import { caloriesBurned, WORKOUT_METS, workoutLabel } from "@/lib/novaself/calculations";
-import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
+import { caloriesBurned, WORKOUT_METS, workoutLabel, calorieTarget, waterTargetMl, isoDate } from "@/lib/novaself/calculations";
+import { OPTIONAL_NUTRIENTS, COMMON_FOOD_PRESETS, type MealType } from "@/lib/novaself/types";
 import type { FoodEntry, WorkoutEntry, DayLog } from "@/lib/novaself/types";
+import {
+  getFoodTrend, getWaterTrend, getWorkoutTrend, getWeightTrend,
+  getSupplementTrend, getSkinTrend, getSleepTrend, getReadingTrend,
+} from "@/lib/novaself/chartHelpers";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -37,6 +43,8 @@ export default function LogPage() {
   function update(patch: Partial<DayLog>) {
     upsertDay({ ...day, ...patch });
   }
+
+  const appState = useApp();
 
   return (
     <div className="space-y-6">
@@ -75,32 +83,119 @@ export default function LogPage() {
       </div>
 
       {tab === "food" && (
-        <FoodTab
-          day={day}
-          update={update}
-          enabledNutrients={settings.enabledNutrients}
-          customNutrients={settings.customNutrients}
-          enabledCustomNutrients={settings.enabledCustomNutrients}
-        />
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Calorie History"
+            subtitle="Past 7 days daily caloric intake"
+            data={getFoodTrend(appState)}
+            goal={calorieTarget(profile)}
+            unit="kcal"
+            color="var(--electric)"
+          />
+          <FoodTab
+            day={day}
+            update={update}
+            enabledNutrients={settings.enabledNutrients}
+            customNutrients={settings.customNutrients}
+            enabledCustomNutrients={settings.enabledCustomNutrients}
+          />
+        </div>
       )}
-      {tab === "water" && <WaterTab day={day} update={update} />}
-      {tab === "workout" && <WorkoutTab day={day} update={update} weightKg={profile.weightKg} />}
+      {tab === "water" && (
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Hydration History"
+            subtitle="Past 7 days daily water intake"
+            data={getWaterTrend(appState)}
+            goal={waterTargetMl(profile)}
+            unit="ml"
+            color="var(--electric)"
+          />
+          <WaterTab day={day} update={update} />
+        </div>
+      )}
+      {tab === "workout" && (
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Workout Burn History"
+            subtitle="Past 7 days calories burned during exercises"
+            data={getWorkoutTrend(appState)}
+            unit="kcal"
+            color="var(--neon)"
+          />
+          <WorkoutTab day={day} update={update} weightKg={profile.weightKg} />
+        </div>
+      )}
       {tab === "weight" && (
-        <WeightTab
-          date={date}
-          currentWeightKg={day.weightKg ?? profile.weightKg}
-          onSave={(kg) => logWeight(date, kg)}
-        />
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Weight Log History"
+            subtitle="Past 7 days recorded weight"
+            data={getWeightTrend(appState)}
+            goal={profile.goalWeightKg}
+            unit="kg"
+            color="var(--electric)"
+          />
+          <WeightTab
+            date={date}
+            currentWeightKg={day.weightKg ?? profile.weightKg}
+            onSave={(kg) => logWeight(date, kg)}
+          />
+        </div>
       )}
       {tab === "supplements" && (
-        <NCard>
-          <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Today's supplements</h3>
-          <SupplementIntakePanel />
-        </NCard>
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Supplement Intakes"
+            subtitle="Past 7 days total doses taken"
+            data={getSupplementTrend(appState)}
+            unit="doses"
+            color="var(--electric)"
+          />
+          <NCard>
+            <h3 className="mb-4 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Today's supplements</h3>
+            <SupplementIntakePanel />
+          </NCard>
+        </div>
       )}
-      {tab === "skin" && <SkinCheckIn />}
-      {tab === "sleep" && <SleepCheckIn />}
-      {tab === "books" && <ReadingSessionForm />}
+      {tab === "skin" && (
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Skin & Hair Care Score"
+            subtitle="Completed checklist items per day (0–5)"
+            data={getSkinTrend(appState)}
+            goal={5}
+            unit="tasks"
+            color="var(--neon)"
+          />
+          <SkinCheckIn />
+        </div>
+      )}
+      {tab === "sleep" && (
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Sleep Duration"
+            subtitle="Past 7 days hours slept per night"
+            data={getSleepTrend(appState)}
+            goal={8}
+            unit="hrs"
+            color="var(--electric)"
+          />
+          <SleepCheckIn />
+        </div>
+      )}
+      {tab === "books" && (
+        <div className="space-y-4">
+          <MiniTrendChart
+            title="7-Day Reading Volume"
+            subtitle="Pages read per day across all books"
+            data={getReadingTrend(appState)}
+            unit="pages"
+            color="var(--electric)"
+          />
+          <ReadingSessionForm />
+        </div>
+      )}
     </div>
   );
 }
@@ -108,6 +203,14 @@ export default function LogPage() {
 // ---------------------------------------------------------------------------
 // FoodTab — updated to render custom nutrients alongside built-ins
 // ---------------------------------------------------------------------------
+function defaultMealType(): MealType {
+  const h = new Date().getHours();
+  if (h < 11) return "breakfast";
+  if (h < 16) return "lunch";
+  if (h < 20) return "dinner";
+  return "snack";
+}
+
 function FoodTab({
   day,
   update,
@@ -121,17 +224,41 @@ function FoodTab({
   customNutrients: import("@/lib/novaself/types").CustomNutrient[];
   enabledCustomNutrients: Record<string, boolean>;
 }) {
+  const { getDay } = useApp();
   const enabledBuiltin = OPTIONAL_NUTRIENTS.filter((n) => enabledNutrients[n.key]);
   const enabledCustom = customNutrients.filter((n) => enabledCustomNutrients[n.id] ?? true);
   const hasOptional = enabledBuiltin.length > 0 || enabledCustom.length > 0;
 
-  const blank: FoodEntry = { id: uid(), name: "", calories: 0, protein: 0, fiber: 0 };
+  const blank: FoodEntry = { id: uid(), name: "", calories: 0, protein: 0, fiber: 0, mealType: defaultMealType() };
   const [draft, setDraft] = useState<FoodEntry>(blank);
 
   function add() {
     if (!draft.name.trim()) return;
     update({ foods: [...day.foods, { ...draft, id: uid() }] });
     setDraft({ ...blank, id: uid() });
+  }
+
+  function removeFood(f: FoodEntry) {
+    const nextFoods = day.foods.filter((x) => x.id !== f.id);
+    update({ foods: nextFoods });
+    toast("Food item removed", {
+      action: {
+        label: "Undo",
+        onClick: () => update({ foods: [...nextFoods, f] }),
+      },
+    });
+  }
+
+  function copyYesterdaysMeals() {
+    const yesterdayDate = isoDate(new Date(Date.now() - 86400000));
+    const yesterdayDay = getDay(yesterdayDate);
+    if (!yesterdayDay || yesterdayDay.foods.length === 0) {
+      toast.error("No meals found in yesterday's log.");
+      return;
+    }
+    const copiedFoods = yesterdayDay.foods.map((f) => ({ ...f, id: uid() }));
+    update({ foods: [...day.foods, ...copiedFoods] });
+    toast.success(`Copied ${copiedFoods.length} meal(s) from yesterday!`);
   }
 
   function setCustomField(id: string, value: number) {
@@ -141,98 +268,152 @@ function FoodTab({
     }));
   }
 
+  function selectPreset(preset: typeof COMMON_FOOD_PRESETS[0]) {
+    setDraft((d) => ({
+      ...d,
+      name: preset.name,
+      calories: preset.calories,
+      protein: preset.protein,
+      fiber: preset.fiber,
+      carbs: preset.carbs,
+      fat: preset.fat,
+    }));
+  }
+
+  const mealTypes: MealType[] = ["breakfast", "lunch", "dinner", "snack"];
+
   return (
-    <NCard>
-      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Add food</h3>
-      <div className="space-y-3">
-        <input
-          placeholder="Food name (e.g. Oats + banana)"
-          value={draft.name}
-          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-          className={inputCls}
-        />
-        <div className="grid grid-cols-3 gap-2">
-          <NumInput label="Calories" value={draft.calories} onChange={(v) => setDraft({ ...draft, calories: v })} />
-          <NumInput label="Protein (g)" value={draft.protein} onChange={(v) => setDraft({ ...draft, protein: v })} />
-          <NumInput label="Fiber (g)" value={draft.fiber} onChange={(v) => setDraft({ ...draft, fiber: v })} />
+    <div className="space-y-4">
+      {/* ── Quick Preset Chips & Copy Yesterday ── */}
+      <NCard>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Common Food Presets</h3>
+          <button
+            onClick={copyYesterdaysMeals}
+            className="flex items-center gap-1 text-[11px] font-semibold text-[var(--electric)] hover:underline"
+          >
+            <Copy className="h-3 w-3" /> Copy Yesterday's Meals
+          </button>
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-1 text-xs">
+          {COMMON_FOOD_PRESETS.map((p) => (
+            <button
+              key={p.name}
+              onClick={() => selectPreset(p)}
+              className="shrink-0 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-left transition hover:border-[var(--electric)] hover:bg-[var(--electric)]/10"
+            >
+              <div className="font-semibold text-foreground">{p.name}</div>
+              <div className="text-[10px] text-muted-foreground">{p.calories} kcal · {p.protein}p</div>
+            </button>
+          ))}
+        </div>
+      </NCard>
+
+      <NCard>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Add food</h3>
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+            <input
+              placeholder="Food name (e.g. Oats + banana)"
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              className={inputCls + " sm:col-span-3"}
+            />
+            <select
+              value={draft.mealType || "snack"}
+              onChange={(e) => setDraft({ ...draft, mealType: e.target.value as MealType })}
+              className={inputCls + " capitalize"}
+            >
+              {mealTypes.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <NumInput label="Calories" value={draft.calories} onChange={(v) => setDraft({ ...draft, calories: v })} />
+            <NumInput label="Protein (g)" value={draft.protein} onChange={(v) => setDraft({ ...draft, protein: v })} />
+            <NumInput label="Fiber (g)" value={draft.fiber} onChange={(v) => setDraft({ ...draft, fiber: v })} />
+          </div>
+
+          {hasOptional && (
+            <details className="rounded-xl border border-border bg-[var(--surface-elevated)] p-3">
+              <summary className="cursor-pointer text-sm text-muted-foreground font-medium">
+                Optional nutrients ({enabledBuiltin.length + enabledCustom.length})
+              </summary>
+              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
+                {enabledBuiltin.map((n) => (
+                  <NumInput
+                    key={n.key}
+                    label={`${n.label} (${n.unit})`}
+                    value={(draft as unknown as Record<string, number>)[n.key] ?? 0}
+                    onChange={(v) => setDraft({ ...draft, [n.key]: v })}
+                  />
+                ))}
+                {enabledCustom.map((n) => (
+                  <NumInput
+                    key={n.id}
+                    label={`${n.name} (${n.unit})`}
+                    value={draft.customFields?.[n.id] ?? 0}
+                    onChange={(v) => setCustomField(n.id, v)}
+                  />
+                ))}
+              </div>
+            </details>
+          )}
+
+          <button
+            onClick={add}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 font-semibold text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)] transition hover:scale-[1.01]"
+          >
+            <Plus className="h-4 w-4" /> Add food
+          </button>
         </div>
 
-        {hasOptional && (
-          <details className="rounded-xl border border-border bg-[var(--surface-elevated)] p-3">
-            <summary className="cursor-pointer text-sm text-muted-foreground">
-              Optional nutrients ({enabledBuiltin.length + enabledCustom.length})
-            </summary>
-            <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
-              {/* Built-in optional nutrients */}
-              {enabledBuiltin.map((n) => (
-                <NumInput
-                  key={n.key}
-                  label={`${n.label} (${n.unit})`}
-                  value={(draft as unknown as Record<string, number>)[n.key] ?? 0}
-                  onChange={(v) => setDraft({ ...draft, [n.key]: v })}
-                />
-              ))}
-              {/* User-defined custom nutrients */}
-              {enabledCustom.map((n) => (
-                <NumInput
-                  key={n.id}
-                  label={`${n.name} (${n.unit})`}
-                  value={draft.customFields?.[n.id] ?? 0}
-                  onChange={(v) => setCustomField(n.id, v)}
-                />
-              ))}
-            </div>
-          </details>
-        )}
+        <div className="mt-6">
+          <h4 className="mb-3 text-xs uppercase tracking-wider text-muted-foreground font-semibold">Today's Meals</h4>
+          {day.foods.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Nothing logged yet — tap a preset or add your first meal.</p>
+          ) : (
+            <div className="space-y-4">
+              {mealTypes.map((mType) => {
+                const group = day.foods.filter((f) => (f.mealType || "snack") === mType);
+                if (group.length === 0) return null;
+                const mCals = group.reduce((sum, f) => sum + f.calories, 0);
+                const mProt = group.reduce((sum, f) => sum + f.protein, 0);
 
-        <button
-          onClick={add}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 font-semibold text-[var(--primary-foreground)] shadow-[0_0_18px_var(--electric)] transition hover:scale-[1.01]"
-        >
-          <Plus className="h-4 w-4" /> Add food
-        </button>
-      </div>
-
-      <div className="mt-6">
-        <h4 className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">Logged</h4>
-        {day.foods.length === 0 ? (
-          <p className="py-6 text-center text-sm text-muted-foreground">Nothing yet — log your first meal.</p>
-        ) : (
-          <ul className="space-y-2">
-            {day.foods.map((f) => {
-              const customSummary = f.customFields
-                ? Object.entries(f.customFields)
-                    .map(([id, val]) => {
-                      const def = customNutrients.find((n) => n.id === id);
-                      return def ? `${val}${def.unit} ${def.name}` : null;
-                    })
-                    .filter(Boolean)
-                    .join(" · ")
-                : "";
-              return (
-                <li key={f.id} className="flex items-start justify-between gap-3 rounded-xl bg-[var(--surface-elevated)] p-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium">{f.name}</div>
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      {f.calories} kcal · {f.protein}g protein · {f.fiber}g fiber
+                return (
+                  <div key={mType} className="rounded-xl border border-border/80 bg-[var(--surface-elevated)] p-3 space-y-2">
+                    <div className="flex items-center justify-between border-b border-border/50 pb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[var(--electric)]">{mType}</span>
+                      <span className="text-xs font-medium text-muted-foreground tabular-nums">{mCals} kcal · {mProt}g protein</span>
                     </div>
-                    {customSummary && (
-                      <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">{customSummary}</div>
-                    )}
+                    <ul className="space-y-1.5">
+                      {group.map((f) => (
+                        <li key={f.id} className="flex items-center justify-between gap-3 text-sm pt-1">
+                          <div className="min-w-0">
+                            <span className="font-medium text-foreground">{f.name}</span>
+                            <div className="text-xs text-muted-foreground tabular-nums">
+                              {f.calories} kcal · {f.protein}p {f.fiber > 0 ? `· ${f.fiber}f` : ""}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => removeFood(f)}
+                            className="shrink-0 text-muted-foreground hover:text-destructive"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                  <button
-                    onClick={() => update({ foods: day.foods.filter((x) => x.id !== f.id) })}
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    </NCard>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </NCard>
+    </div>
   );
 }
 
@@ -240,35 +421,158 @@ function FoodTab({
 // WaterTab, WorkoutTab, WeightTab — unchanged from original
 // ---------------------------------------------------------------------------
 function WaterTab({ day, update }: { day: DayLog; update: (p: Partial<DayLog>) => void }) {
+  const { profile } = useApp();
+  const target = Math.round(35 * profile.weightKg);
   const total = day.water.reduce((a, w) => a + w.ml, 0);
-  function quick(ml: number) { update({ water: [...day.water, { id: uid(), ml }] }); }
-  const [manual, setManual] = useState(200);
+  const pct = Math.min(100, Math.round((total / target) * 100));
+
+  function quick(ml: number) {
+    update({ water: [...day.water, { id: uid(), ml }] });
+    toast.success(`+${ml}ml water logged!`);
+  }
+  const [manual, setManual] = useState(250);
+
+  const presets = [
+    { label: "+150ml Glass", ml: 150 },
+    { label: "+250ml Cup", ml: 250 },
+    { label: "+500ml Bottle", ml: 500 },
+    { label: "+750ml Shaker", ml: 750 },
+    { label: "+1000ml Jug", ml: 1000 },
+  ];
+
   return (
     <NCard>
       <div className="mb-4 flex items-end justify-between">
         <div>
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">Total today</div>
-          <div className="font-display text-4xl font-bold tabular-nums">{total} <span className="text-base text-muted-foreground">ml</span></div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Hydration Today</div>
+          <div className="font-display text-4xl font-bold tabular-nums">
+            {total} <span className="text-base text-muted-foreground font-normal">/ {target} ml ({pct}%)</span>
+          </div>
         </div>
         <Droplets className="h-10 w-10 text-[var(--electric)]" />
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        {[250, 500, 1000].map((v) => (
-          <button key={v} onClick={() => quick(v)} className="rounded-xl border border-border bg-[var(--surface-elevated)] py-3 text-sm font-medium transition hover:border-[var(--electric)] hover:text-[var(--electric)]">+{v} ml</button>
+
+      {/* Visual Water Fill Bar */}
+      <div className="mb-4 h-3.5 w-full overflow-hidden rounded-full bg-[var(--surface-elevated)] border border-border/80">
+        <div
+          className="h-full bg-gradient-to-r from-[var(--electric)] to-cyan-400 transition-all duration-500 rounded-full"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        {presets.map((p) => (
+          <button
+            key={p.ml}
+            onClick={() => quick(p.ml)}
+            className="rounded-xl border border-border bg-[var(--surface-elevated)] py-2.5 px-2 text-xs font-semibold transition hover:border-[var(--electric)] hover:text-[var(--electric)] hover:bg-[var(--electric)]/10"
+          >
+            {p.label}
+          </button>
         ))}
       </div>
+
       <div className="mt-3 flex gap-2">
-        <input type="number" value={manual} onChange={(e) => setManual(+e.target.value)} className={inputCls + " flex-1"} />
-        <button onClick={() => quick(manual)} className="rounded-xl bg-[var(--electric)] px-4 font-medium text-[var(--primary-foreground)]">Add</button>
+        <input
+          type="number"
+          value={manual}
+          onChange={(e) => setManual(+e.target.value)}
+          placeholder="Custom ml"
+          className={inputCls + " flex-1"}
+        />
+        <button onClick={() => quick(manual)} className="rounded-xl bg-[var(--electric)] px-5 font-semibold text-[var(--primary-foreground)] text-xs">
+          Add
+        </button>
       </div>
-      <ul className="mt-4 flex flex-wrap gap-2">
-        {day.water.map((w) => (
-          <li key={w.id} className="flex items-center gap-2 rounded-full border border-border bg-[var(--surface-elevated)] px-3 py-1 text-xs">
-            {w.ml} ml <button onClick={() => update({ water: day.water.filter((x) => x.id !== w.id) })} className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
-          </li>
-        ))}
-      </ul>
+
+      <div className="mt-4">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Logged Today:</span>
+        {day.water.length === 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">No water logged yet today.</p>
+        ) : (
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {day.water.map((w) => (
+              <li key={w.id} className="flex items-center gap-2 rounded-full border border-border bg-[var(--surface-elevated)] px-3 py-1 text-xs font-medium">
+                {w.ml} ml
+                <button
+                  onClick={() => {
+                    const nextWater = day.water.filter((x) => x.id !== w.id);
+                    update({ water: nextWater });
+                    toast("Water entry removed", {
+                      action: {
+                        label: "Undo",
+                        onClick: () => update({ water: [...nextWater, w] }),
+                      },
+                    });
+                  }}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </NCard>
+  );
+}
+
+function RestTimer() {
+  const [seconds, setSeconds] = useState(0);
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (active && seconds > 0) {
+      interval = setInterval(() => {
+        setSeconds((s) => s - 1);
+      }, 1000);
+    } else if (seconds === 0 && active) {
+      setActive(false);
+      toast.success("⏰ Rest Timer Finished! Time for your next set!");
+    }
+    return () => { if (interval) clearInterval(interval); };
+  }, [active, seconds]);
+
+  function startTimer(sec: number) {
+    setSeconds(sec);
+    setActive(true);
+  }
+
+  return (
+    <div className="rounded-xl border border-border/80 bg-[var(--surface-elevated)] p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold uppercase tracking-wider text-[var(--electric)]">Set Rest Timer</span>
+        <span className="font-display text-lg font-bold tabular-nums text-foreground">
+          {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        {[30, 60, 90, 120, 180].map((s) => (
+          <button
+            key={s}
+            onClick={() => startTimer(s)}
+            className={`rounded-lg px-2.5 py-1.5 font-medium border transition ${
+              seconds === s && active
+                ? "border-[var(--electric)] bg-[var(--electric)] text-[var(--primary-foreground)]"
+                : "border-border/80 bg-background text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {s < 60 ? `${s}s` : `${s / 60}m`}
+          </button>
+        ))}
+        {active ? (
+          <button onClick={() => setActive(false)} className="rounded-lg bg-amber-500/20 text-amber-300 px-2.5 py-1.5 font-medium">
+            Pause
+          </button>
+        ) : seconds > 0 ? (
+          <button onClick={() => setActive(true)} className="rounded-lg bg-[var(--neon)]/20 text-[var(--neon)] px-2.5 py-1.5 font-medium">
+            Resume
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -297,8 +601,13 @@ function WorkoutTab({ day, update, weightKg }: { day: DayLog; update: (p: Partia
   }
 
   return (
-    <NCard>
-      <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Log workout</h3>
+    <div className="space-y-4">
+      <NCard>
+        <RestTimer />
+      </NCard>
+
+      <NCard>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Log workout</h3>
       <div className="grid grid-cols-2 gap-2">
         <Field label="Type">
           <select value={type} onChange={(e) => setType(e.target.value)} className={inputCls}>
@@ -337,11 +646,26 @@ function WorkoutTab({ day, update, weightKg }: { day: DayLog; update: (p: Partia
               <div className="text-xs text-muted-foreground tabular-nums">{w.durationMin} min · {Math.round(w.caloriesBurned)} kcal</div>
               {w.notes && <div className="text-xs text-muted-foreground">{w.notes}</div>}
             </div>
-            <button onClick={() => update({ workouts: day.workouts.filter((x) => x.id !== w.id) })} className="text-muted-foreground hover:text-destructive"><X className="h-4 w-4" /></button>
+            <button
+              onClick={() => {
+                const nextWorkouts = day.workouts.filter((x) => x.id !== w.id);
+                update({ workouts: nextWorkouts });
+                toast("Workout removed", {
+                  action: {
+                    label: "Undo",
+                    onClick: () => update({ workouts: [...nextWorkouts, w] }),
+                  },
+                });
+              }}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </li>
         ))}
       </ul>
     </NCard>
+    </div>
   );
 }
 

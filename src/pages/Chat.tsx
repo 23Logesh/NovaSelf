@@ -34,10 +34,27 @@ export default function Chat() {
 
       <NCard className="flex-1 overflow-y-auto">
         {chat.length === 0 && (
-          <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground">
+          <div className="flex h-full flex-col items-center justify-center text-center text-muted-foreground p-4">
             <Sparkles className="mb-3 h-10 w-10 text-[var(--electric)]" />
-            <p className="font-display text-lg">Ask anything about your training, diet, or stats.</p>
-            <p className="mt-1 text-sm">Connects live to your Ollama server configured in /settings.</p>
+            <p className="font-display text-lg font-semibold text-foreground">Ask anything about your training, diet, or stats.</p>
+            <p className="mt-1 text-xs">Connected live to your Ollama server at <span className="text-[var(--electric)]">{settings.ollamaUrl}</span></p>
+
+            <div className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-2 text-left w-full max-w-md">
+              {[
+                "🥗 Analyze my macros & calories today",
+                "🏋️ Suggest a high-protein post-workout meal",
+                "💡 How do I optimize my sleep quality?",
+                "🎯 Am I on track for my goal weight?",
+              ].map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => setText(prompt)}
+                  className="rounded-xl border border-border/80 bg-[var(--surface-elevated)] p-3 text-xs text-foreground transition hover:border-[var(--electric)] hover:bg-[var(--electric)]/10"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
           </div>
         )}
         <div className="space-y-3">

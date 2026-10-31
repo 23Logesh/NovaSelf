@@ -1,11 +1,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Plus, RotateCcw, X } from "lucide-react";
+import { Download, Plus, RotateCcw, X, Upload, FileJson, Sparkles } from "lucide-react";
+import { toast } from "sonner";
+import { Capacitor } from "@capacitor/core";
+import { Directory, Filesystem } from "@capacitor/filesystem";
+import { Share } from "@capacitor/share";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
+import { AppTour } from "@/components/novaself/AppTour";
 import { useApp } from "@/lib/novaself/store";
 import { runExport } from "@/lib/novaself/exportExcel";
 import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
+import { isoDate } from "@/lib/novaself/calculations";
 import type { ActivityLevel } from "@/lib/novaself/calculations";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -19,6 +25,7 @@ export default function Settings() {
     resetAll, clearOllamaUrl,
   } = app;
   const [exporting, setExporting] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const navigate = useNavigate();
 
   const [customDraft, setCustomDraft] = useState({ name: "", unit: "g" });
@@ -210,24 +217,103 @@ export default function Settings() {
         </div>
       </NCard>
 
-      {/* Data export */}
+      {/* Data export & Backup */}
       <NCard>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your data</h3>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your Data & Backup</h3>
         <p className="mb-3 text-xs text-muted-foreground">
-          Everything is stored on this phone only. Export a full Excel backup (one sheet per section)
-          and save it to Drive, Files, or send it anywhere.
+          Everything is stored locally on this device. You can export an Excel report, or create a full JSON database backup to restore on any phone later.
+        </p>
+        <div className="space-y-3">
+          <button
+            onClick={async () => {
+              setExporting(true);
+              try { await runExport(app); } finally { setExporting(false); }
+            }}
+            disabled={exporting}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-50 transition hover:scale-[1.005]"
+          >
+            <Download className="h-4 w-4" /> {exporting ? "Preparing…" : "Export to Excel (.xlsx)"}
+          </button>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <button
+              onClick={async () => {
+                try {
+                  const dataStr = JSON.stringify(app, null, 2);
+                  const fileName = `novaself-backup-${isoDate()}.json`;
+                  if (Capacitor.isNativePlatform()) {
+                    const { uri } = await Filesystem.writeFile({
+                      path: fileName,
+                      data: dataStr,
+                      directory: Directory.Cache,
+                    });
+                    await Share.share({ title: "NovaSelf JSON Backup", url: uri });
+                  } else {
+                    const blob = new Blob([dataStr], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = fileName;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }
+                  toast.success("JSON backup exported!");
+                } catch {
+                  toast.error("Export failed");
+                }
+              }}
+              className="flex items-center justify-center gap-2 rounded-xl border border-border bg-[var(--surface-elevated)] py-2.5 text-xs font-semibold text-foreground hover:border-[var(--electric)] transition"
+            >
+              <FileJson className="h-4 w-4 text-[var(--electric)]" /> Export JSON Backup
+            </button>
+
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-[var(--surface-elevated)] py-2.5 text-xs font-semibold text-foreground hover:border-[var(--neon)] transition">
+              <Upload className="h-4 w-4 text-[var(--neon)]" /> Restore JSON Backup
+              <input
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    try {
+                      const content = ev.target?.result as string;
+                      const parsed = JSON.parse(content);
+                      if (parsed && typeof parsed === "object" && (parsed.profile || parsed.days)) {
+                        window.localStorage.setItem("novaself.v1", JSON.stringify(parsed));
+                        toast.success("Backup restored successfully! Reloading...");
+                        setTimeout(() => window.location.reload(), 800);
+                      } else {
+                        toast.error("Invalid backup file format.");
+                      }
+                    } catch {
+                      toast.error("Failed to read backup file.");
+                    }
+                  };
+                  reader.readAsText(file);
+                }}
+              />
+            </label>
+          </div>
+        </div>
+      </NCard>
+
+      {/* Help & Guide */}
+      <NCard>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Help & Guide</h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Learn how to make the most of NovaSelf's features, tracking tools, and calculations.
         </p>
         <button
-          onClick={async () => {
-            setExporting(true);
-            try { await runExport(app); } finally { setExporting(false); }
-          }}
-          disabled={exporting}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
+          onClick={() => setTourOpen(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--electric)] bg-[var(--electric)]/10 py-3 text-sm font-semibold text-[var(--electric)] hover:bg-[var(--electric)]/20 transition"
         >
-          <Download className="h-4 w-4" /> {exporting ? "Preparing…" : "Export to Excel"}
+          <Sparkles className="h-4 w-4" /> Take Feature Tour
         </button>
       </NCard>
+      <AppTour isOpen={tourOpen} onClose={() => setTourOpen(false)} />
 
       {/* Danger zone */}
       <NCard>

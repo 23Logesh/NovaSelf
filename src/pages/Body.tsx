@@ -5,6 +5,7 @@ import { useApp } from "@/lib/novaself/store";
 import {
   bmi, bmiCategory, bmr, tdee, calorieTarget, calculatedCalorieTarget, proteinTargetG, fiberTargetG,
   waterTargetMl, bodyFatPctUSNavy, idealWeightDevine, leanBodyMassBoer, fatMass, omega3TargetG,
+  whtr, whr, ffmi, oneRepMax,
 } from "@/lib/novaself/calculations";
 
 type Color = "electric" | "neon" | "amber" | "pink";
@@ -14,7 +15,14 @@ export default function Body() {
   const v = bmi(profile.weightKg, profile.heightCm);
   const bf = bodyFatPctUSNavy(profile);
   const fm = fatMass(profile);
+  const whtrData = whtr(profile.waistCm, profile.heightCm);
+  const whrData = whr(profile.waistCm, profile.hipCm, profile.sex);
+  const ffmiData = ffmi(profile);
   const isOverridden = typeof profile.calorieTargetOverride === "number" && profile.calorieTargetOverride > 0;
+
+  const [rmWeight, setRmWeight] = useState(60);
+  const [rmReps, setRmReps] = useState(8);
+  const maxEst = oneRepMax(rmWeight, rmReps);
 
   return (
     <div className="space-y-7">
@@ -31,8 +39,31 @@ export default function Body() {
         <BigStat label="Lean body mass" value={`${leanBodyMassBoer(profile).toFixed(1)} kg`} sub="Boer formula" />
         <BigStat label="Body fat %" value={bf !== null ? `${bf.toFixed(1)}%` : "—"} sub="US Navy method" color="pink" />
         <BigStat label="Fat mass" value={fm !== null ? `${fm.toFixed(1)} kg` : "—"} sub="from US Navy BF%" />
+        <BigStat label="Waist-to-Height (WHtR)" value={whtrData ? whtrData.ratio.toFixed(2) : "—"} sub={whtrData ? whtrData.category : "Neck/Waist needed"} color="neon" />
+        <BigStat label="Waist-to-Hip (WHR)" value={whrData ? whrData.ratio.toFixed(2) : "—"} sub={whrData ? whrData.category : "Waist/Hip needed"} color="amber" />
+        <BigStat label="FFMI Index" value={ffmiData ? ffmiData.ffmi.toFixed(1) : "—"} sub={ffmiData ? ffmiData.category : "Muscle Index"} color="electric" />
         <BigStat label="Omega-3 target" value={`${omega3TargetG()} g`} sub="reference / day" />
       </div>
+
+      {/* ── 1-Rep Max Calculator ── */}
+      <NCard>
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Strength Benchmark — 1-Rep Max Estimator</h3>
+        <p className="mb-4 text-xs text-muted-foreground">Estimate your max single-rep strength for Bench Press, Squat, or Deadlift.</p>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 items-end">
+          <label className="block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground">Lift Weight (kg)</span>
+            <input type="number" value={rmWeight} onChange={(e) => setRmWeight(+e.target.value)} className="w-full rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm outline-none focus:border-[var(--electric)]" />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[10px] uppercase tracking-wider text-muted-foreground">Reps Performed</span>
+            <input type="number" min={1} max={30} value={rmReps} onChange={(e) => setRmReps(+e.target.value)} className="w-full rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm outline-none focus:border-[var(--electric)]" />
+          </label>
+          <div className="rounded-xl border border-[var(--neon)]/40 bg-[var(--neon)]/10 p-2.5 text-center">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-[var(--neon)]">Est. 1RM Max</span>
+            <span className="font-display text-2xl font-bold tabular-nums text-foreground">{maxEst} kg</span>
+          </div>
+        </div>
+      </NCard>
 
       {/* FR-15: calorie target is now editable/overridable, not just calculated. */}
       <NCard glow="electric">

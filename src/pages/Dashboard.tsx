@@ -2,9 +2,10 @@ import { Link } from "react-router-dom";
 import {
   Flame, Zap, BookOpen, Pencil, TrendingDown,
   Dumbbell, Salad, Droplets, Pill, Sparkles, Moon,
-  CalendarDays,
+  CalendarDays, Plus, AlertCircle, Scale, Activity,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { toast } from "sonner";
 import { ProgressRing } from "@/components/novaself/ProgressRing";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
@@ -132,13 +133,19 @@ function DailyTimeline({ date }: { date: string }) {
 // ---------------------------------------------------------------------------
 
 export default function Dashboard() {
-  const { profile, days, books, readingSessions } = useApp();
-  const day = days.find((d) => d.date === today()) ?? { date: today(), foods: [], water: [], workouts: [] };
+  const { profile, days, books, readingSessions, supplements, getDay, upsertDay } = useApp();
+  const t = today();
+  const day = getDay(t);
 
   const cals    = day.foods.reduce((a, f) => a + f.calories, 0);
   const protein = day.foods.reduce((a, f) => a + f.protein, 0);
   const fiber   = day.foods.reduce((a, f) => a + f.fiber, 0);
   const water   = day.water.reduce((a, w) => a + w.ml, 0);
+  const burned  = day.workouts.reduce((a, w) => a + w.caloriesBurned, 0);
+
+  const targetCals = calorieTarget(profile);
+  const netCals    = Math.round(cals - burned);
+  const remainingCals = Math.round(targetCals - netCals);
 
   const workoutDates = new Set(days.filter((d) => d.workouts.length > 0).map((d) => d.date));
   const workoutStreak = computeStreak(workoutDates);
@@ -147,6 +154,15 @@ export default function Dashboard() {
 
   const yesterday = isoDate(new Date(Date.now() - 86400000));
   const progress  = goalProgressPct(profile);
+
+  // Low stock alert
+  const lowStockSupps = supplements.filter((s) => s.stock <= 3);
+
+  function quickAddWater(ml: number = 250) {
+    const id = Math.random().toString(36).slice(2, 10);
+    upsertDay({ ...day, water: [...day.water, { id, ml }] });
+    toast.success(`+${ml}ml water added!`);
+  }
 
   return (
     <div className="space-y-7">
@@ -166,12 +182,68 @@ export default function Dashboard() {
         </Link>
       </div>
 
+      {/* ── Quick Action Bar ── */}
+      <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/80 bg-[var(--surface)] p-2">
+        <span className="ml-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Quick Log:</span>
+        <button
+          onClick={() => quickAddWater(250)}
+          className="flex items-center gap-1.5 rounded-xl bg-[var(--surface-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--electric)] border border-border/60 hover:border-[var(--electric)] transition"
+        >
+          <Droplets className="h-3.5 w-3.5" /> +250ml Water
+        </button>
+        <Link
+          to="/log"
+          className="flex items-center gap-1.5 rounded-xl bg-[var(--surface-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--neon)] border border-border/60 hover:border-[var(--neon)] transition"
+        >
+          <Salad className="h-3.5 w-3.5" /> + Food
+        </Link>
+        <Link
+          to="/log"
+          className="flex items-center gap-1.5 rounded-xl bg-[var(--surface-elevated)] px-3 py-1.5 text-xs font-semibold text-[var(--electric)] border border-border/60 hover:border-[var(--electric)] transition"
+        >
+          <Dumbbell className="h-3.5 w-3.5" /> + Workout
+        </Link>
+        <Link
+          to="/log"
+          className="flex items-center gap-1.5 rounded-xl bg-[var(--surface-elevated)] px-3 py-1.5 text-xs font-semibold text-foreground border border-border/60 hover:border-foreground transition"
+        >
+          <Scale className="h-3.5 w-3.5" /> Log Weight
+        </Link>
+      </div>
+
+      {/* ── Low Supplement Alert ── */}
+      {lowStockSupps.length > 0 && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+          <AlertCircle className="h-5 w-5 shrink-0 text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <span className="font-semibold text-amber-300">Low Supplement Stock: </span>
+            {lowStockSupps.map((s) => `${s.name} (${s.stock} left)`).join(", ")}
+          </div>
+          <Link to="/supplements" className="shrink-0 rounded-lg bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300 hover:bg-amber-500/30">
+            Restock
+          </Link>
+        </div>
+      )}
+
+      {/* ── Energy Balance & Macro Overview ── */}
       <NCard glow="electric" className="overflow-hidden">
         <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-          <ProgressRing value={cals}    max={calorieTarget(profile)}  label="Calories" unit="kcal"  color="electric" />
+          <ProgressRing value={cals}    max={targetCals}  label="Calories" unit="kcal"  color="electric" />
           <ProgressRing value={protein} max={proteinTargetG(profile)} label="Protein"  unit="g"     color="neon"     />
           <ProgressRing value={water}   max={waterTargetMl(profile)}  label="Water"    unit="ml"    color="amber"    />
           <ProgressRing value={fiber}   max={fiberTargetG(profile)}   label="Fiber"    unit="g"     color="pink"     />
+        </div>
+
+        {/* Net Calorie Balance Strip */}
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4 text-xs">
+          <div className="flex items-center gap-4 text-muted-foreground">
+            <div>Eaten: <span className="font-semibold text-foreground">{cals} kcal</span></div>
+            <div>Burned: <span className="font-semibold text-[var(--neon)]">-{Math.round(burned)} kcal</span></div>
+            <div>Net: <span className="font-semibold text-[var(--electric)]">{netCals} kcal</span></div>
+          </div>
+          <div className="font-medium text-foreground">
+            {remainingCals >= 0 ? `${remainingCals} kcal remaining` : `${Math.abs(remainingCals)} kcal over goal`}
+          </div>
         </div>
       </NCard>
 

@@ -18,6 +18,7 @@ import Chat from "@/pages/Chat";
 import Settings from "@/pages/Settings";
 import NotFound from "@/pages/NotFound";
 import { RootRedirect } from "@/pages/RootRedirect";
+import { Toaster } from "@/components/ui/sonner";
 
 // HashRouter: required for GitHub Pages static hosting (no server-side rewrites).
 // See comment in original App.tsx for migration path to BrowserRouter on Vercel.
@@ -62,6 +63,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppProvider>
+        <Toaster position="bottom-center" />
         <HashRouter>
           <Routes>
             <Route path="/" element={<RootRedirect />} />

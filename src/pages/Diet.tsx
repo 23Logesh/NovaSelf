@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Plus, X, Pencil, Check } from "lucide-react";
+import { Plus, X, Pencil, Check, PlusCircle } from "lucide-react";
+import { toast } from "sonner";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
-import { useApp } from "@/lib/novaself/store";
+import { useApp, today } from "@/lib/novaself/store";
 import type { DietItem, DietPhase, MessItem } from "@/lib/novaself/types";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -74,10 +75,25 @@ export default function Diet() {
 }
 
 function PhaseEditor({ phase, onUpdate, onRemove, canRemove }: { phase: DietPhase; onUpdate: (p: Partial<DietPhase>) => void; onRemove: () => void; canRemove: boolean }) {
+  const { getDay, upsertDay } = useApp();
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(phase.name);
   const totals = phase.items.reduce((a, d) => ({ cal: a.cal + d.calories, p: a.p + d.protein, f: a.f + d.fiber }), { cal: 0, p: 0, f: 0 });
   const [draft, setDraft] = useState<DietItem>({ id: uid(), meal: "Snack", food: "", calories: 0, protein: 0, fiber: 0 });
+
+  function logMealToToday(item: DietItem) {
+    const t = today();
+    const day = getDay(t);
+    const newFood = {
+      id: uid(),
+      name: `${item.food} (${item.meal})`,
+      calories: item.calories,
+      protein: item.protein,
+      fiber: item.fiber,
+    };
+    upsertDay({ ...day, foods: [...day.foods, newFood] });
+    toast.success(`Logged "${item.food}" (${item.calories} kcal) to Today's Food!`);
+  }
 
   return (
     <NCard>
@@ -108,11 +124,22 @@ function PhaseEditor({ phase, onUpdate, onRemove, canRemove }: { phase: DietPhas
 
       <ul className="space-y-2">
         {phase.items.map((d) => (
-          <li key={d.id} className="grid grid-cols-[100px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl bg-[var(--surface-elevated)] p-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[var(--electric)]">{d.meal}</span>
-            <span className="truncate text-sm">{d.food}</span>
-            <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">{d.calories} kcal · {d.protein}p · {d.fiber}f</span>
-            <button onClick={() => onUpdate({ items: phase.items.filter((x) => x.id !== d.id) })} className="text-muted-foreground hover:text-destructive"><X className="h-4 w-4" /></button>
+          <li key={d.id} className="flex items-center justify-between gap-3 rounded-xl bg-[var(--surface-elevated)] p-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-[var(--electric)]">{d.meal}</span>
+              <span className="truncate text-sm font-medium">{d.food}</span>
+              <span className="hidden text-xs text-muted-foreground tabular-nums sm:inline">{d.calories} kcal · {d.protein}p · {d.fiber}f</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => logMealToToday(d)}
+                className="flex items-center gap-1 rounded-lg bg-[var(--electric)]/15 px-2.5 py-1 text-xs font-semibold text-[var(--electric)] transition hover:bg-[var(--electric)]/25"
+                title="Log this meal to today's food"
+              >
+                <PlusCircle className="h-3.5 w-3.5" /> Log
+              </button>
+              <button onClick={() => onUpdate({ items: phase.items.filter((x) => x.id !== d.id) })} className="text-muted-foreground hover:text-destructive"><X className="h-4 w-4" /></button>
+            </div>
           </li>
         ))}
         {phase.items.length === 0 && <p className="py-4 text-center text-sm text-muted-foreground">No meals in this phase yet.</p>}

@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Plus, X, Layers } from "lucide-react";
+import { Plus, X, Layers, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
-import { useApp } from "@/lib/novaself/store";
+import { useApp, today } from "@/lib/novaself/store";
+import { caloriesBurned } from "@/lib/novaself/calculations";
 import type { Exercise, WorkoutDay, WorkoutPhase } from "@/lib/novaself/types";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -85,13 +87,46 @@ function PhaseCard({ phase, onChange, onRemove }: { phase: WorkoutPhase; onChang
 }
 
 function DayBlock({ day, onChange, onRemove }: { day: WorkoutDay; onChange: (p: Partial<WorkoutDay>) => void; onRemove: () => void }) {
+  const { getDay, upsertDay, profile } = useApp();
   const [ex, setEx] = useState<Exercise>({ id: uid(), name: "", sets: undefined, reps: undefined, durationMin: undefined, notes: "" });
+
+  function logWorkoutToToday() {
+    if (day.exercises.length === 0) return;
+    const t = today();
+    const currentDay = getDay(t);
+    const totalMin = day.exercises.reduce((sum, e) => sum + (e.durationMin || 10), 0);
+    const burn = caloriesBurned(6.0, profile.weightKg, totalMin);
+    const notesSummary = day.exercises.map((e) => `${e.name} (${e.sets || 3}x${e.reps || 10})`).join(", ");
+
+    const newWorkout = {
+      id: uid(),
+      type: day.name.toLowerCase().replace(/[^a-z0-9_]/g, "_") || "gym",
+      durationMin: totalMin,
+      caloriesBurned: burn,
+      notes: notesSummary,
+    };
+
+    upsertDay({ ...currentDay, workouts: [...currentDay.workouts, newWorkout] });
+    toast.success(`Logged "${day.name}" (${Math.round(burn)} kcal) to Today's Workouts!`);
+  }
+
   return (
     <div className="rounded-xl border border-border bg-[var(--surface-elevated)] p-3">
       <div className="mb-2 flex items-center justify-between">
         <input value={day.name} onChange={(e) => onChange({ name: e.target.value })}
           className="bg-transparent text-sm font-semibold uppercase tracking-wider text-[var(--neon)] outline-none" />
-        <button onClick={onRemove} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+        <div className="flex items-center gap-2">
+          {day.exercises.length > 0 && (
+            <button
+              onClick={logWorkoutToToday}
+              className="flex items-center gap-1 rounded-lg bg-[var(--neon)]/15 px-2.5 py-1 text-xs font-semibold text-[var(--neon)] hover:bg-[var(--neon)]/25"
+              title="Log this workout to today's workout log"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Complete Today
+            </button>
+          )}
+          <button onClick={onRemove} className="text-muted-foreground hover:text-destructive"><X className="h-3.5 w-3.5" /></button>
+        </div>
       </div>
       <ul className="space-y-1">
         {day.exercises.map((e) => (

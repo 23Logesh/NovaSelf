@@ -62,6 +62,8 @@ export const calorieTarget = (p: Profile) =>
     : calculatedCalorieTarget(p);
 
 export const proteinTargetG = (p: Profile) => 1.8 * p.weightKg;
+export const carbsTargetG = (p: Profile) => Math.round((calorieTarget(p) * 0.45) / 4);
+export const fatTargetG = (p: Profile) => Math.round((calorieTarget(p) * 0.25) / 9);
 export const fiberTargetG = (p: Profile) => 14 * (calorieTarget(p) / 1000);
 export const waterTargetMl = (p: Profile) => 35 * p.weightKg;
 export const omega3TargetG = () => 1.6;
@@ -92,6 +94,56 @@ export function leanBodyMassBoer(p: Pick<Profile, "weightKg" | "heightCm" | "sex
 export function fatMass(p: Profile): number | null {
   const bf = bodyFatPctUSNavy(p);
   return bf === null ? null : (bf / 100) * p.weightKg;
+}
+
+// Waist-to-Height Ratio
+export function whtr(waistCm?: number, heightCm?: number): { ratio: number; category: string } | null {
+  if (!waistCm || !heightCm) return null;
+  const ratio = waistCm / heightCm;
+  let category = "Healthy";
+  if (ratio < 0.4) category = "Slim";
+  else if (ratio < 0.5) category = "Healthy";
+  else if (ratio < 0.6) category = "Overweight";
+  else category = "Very High Risk";
+  return { ratio: Math.round(ratio * 100) / 100, category };
+}
+
+// Waist-to-Hip Ratio
+export function whr(waistCm?: number, hipCm?: number, sex: Sex = "male"): { ratio: number; category: string } | null {
+  if (!waistCm || !hipCm) return null;
+  const ratio = waistCm / hipCm;
+  let category = "Low Risk";
+  if (sex === "male") {
+    if (ratio >= 0.95 && ratio < 1.0) category = "Moderate Risk";
+    else if (ratio >= 1.0) category = "High Risk";
+  } else {
+    if (ratio >= 0.80 && ratio < 0.85) category = "Moderate Risk";
+    else if (ratio >= 0.85) category = "High Risk";
+  }
+  return { ratio: Math.round(ratio * 100) / 100, category };
+}
+
+// Fat-Free Mass Index (FFMI)
+export function ffmi(p: Profile): { ffmi: number; category: string } | null {
+  const lbm = leanBodyMassBoer(p);
+  const heightM = p.heightCm / 100;
+  if (heightM <= 0) return null;
+  const rawFFMI = lbm / (heightM * heightM);
+  // Normalized FFMI for height
+  const normalizedFFMI = rawFFMI + 6.1 * (1.8 - heightM);
+  let category = "Average";
+  if (normalizedFFMI < 18) category = "Below Average";
+  else if (normalizedFFMI < 20) category = "Average";
+  else if (normalizedFFMI < 22) category = "Above Average";
+  else if (normalizedFFMI < 25) category = "Excellent";
+  else category = "Superior (Elite)";
+  return { ffmi: Math.round(normalizedFFMI * 10) / 10, category };
+}
+
+// Epley 1-Rep Max Estimate
+export function oneRepMax(weightKg: number, reps: number): number {
+  if (reps <= 1) return weightKg;
+  return Math.round(weightKg * (1 + reps / 30));
 }
 
 // MET-based calorie burn
@@ -143,8 +195,22 @@ export function goalETA(
 }
 
 export function isoDate(d: Date | string = new Date()): string {
-  const date = typeof d === "string" ? new Date(d) : d;
-  return date.toISOString().slice(0, 10);
+  if (typeof d === "string") {
+    // If string is already YYYY-MM-DD, return it
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    const parsed = new Date(d);
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = String(parsed.getMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+    return d;
+  }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 // Walks back day-by-day from today while the date is present in `dates`.
