@@ -1,0 +1,27 @@
+
+> novaself@1.0.0 android
+> vite build && cap sync android && cap open android # opens Android Studio → Run, or Build APK(s)
+
+[36mvite v6.4.3 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 2389 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                 [39m[1m[2m    1.30 kB[22m[1m[22m[2m │ gzip:   0.56 kB[22m
+[2mdist/[22m[35massets/index-CfpOSpeB.css  [39m[1m[2m   87.61 kB[22m[1m[22m[2m │ gzip:  14.38 kB[22m
+[2mdist/[22m[36massets/web-bFdRDb7I.js     [39m[1m[2m    0.36 kB[22m[1m[22m[2m │ gzip:   0.25 kB[22m
+[2mdist/[22m[36massets/web-BssoA_-y.js     [39m[1m[2m    8.73 kB[22m[1m[22m[2m │ gzip:   2.97 kB[22m
+[2mdist/[22m[36massets/index-2LG9espX.js   [39m[1m[33m1,053.06 kB[39m[22m[2m │ gzip: 314.82 kB[22m
+[32m✓ built in 25.02s[39m
+√ Copying web assets from dist to android\app\src\main\assets\public in 22.13ms
+√ Creating capacitor.config.json in android\app\src\main\assets in 2.60ms
+√ copy android in 113.37ms
+√ Updating Android plugins in 18.30ms
+[info] Found 2 Capacitor plugins for android:
+       @capacitor/filesystem@8.1.5
+       @capacitor/share@8.0.3
+√ update android in 215.67ms
+[info] Sync finished in 0.814s
+[error] Unable to launch Android Studio. Is it installed?
+        Attempted to open Android Studio at:
+        You can configure this with the CAPACITOR_ANDROID_STUDIO_PATH environment variable.

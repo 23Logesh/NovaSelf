@@ -1,5 +1,5 @@
 import {
-  createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, type ReactNode,
+  createContext, useContext, useEffect, useMemo, useState, type ReactNode,
 } from "react";
 import type {
   AppSettings, Book, ChatMessage, CustomNutrient, DayLog, DietPhase, MessItem,
@@ -7,27 +7,12 @@ import type {
 } from "./types";
 import type { Profile } from "./calculations";
 import { isoDate } from "./calculations";
-import {
-  defaultBooks, defaultDays, defaultDietPhases, defaultIntakes, defaultMess, defaultProfile,
-  defaultReading, defaultSettings, defaultSkinLogs, defaultSleepLogs, defaultSupplements,
-  defaultWorkoutPhases, emptyUserState,
-} from "./mockData";
-import { goToGoogleLogin, signOutOfGoogle } from "./googleAuth";
-import { fetchMe, fetchState, syncState, pickSyncable } from "./stateApi";
-
-export interface GoogleAccount {
-  email: string;
-  name: string;
-}
+import { defaultSettings, emptyUserState } from "./mockData";
 
 export interface AppState {
-  signedIn: boolean;
   onboarded: boolean;
-  googleAccount: GoogleAccount | null;
   profile: Profile;
-  profileUpdatedAt: number;
   settings: AppSettings;
-  settingsUpdatedAt: number;
   days: DayLog[];
   dietPhases: DietPhase[];
   mess: MessItem[];
@@ -42,10 +27,6 @@ export interface AppState {
 }
 
 interface AppActions {
-  signInGoogle: () => Promise<void>;
-  signOut: () => Promise<void>;
-  reconnectGoogle: () => Promise<void>;
-  restoreSession: () => Promise<boolean>;
   saveProfile: (p: Partial<Profile>) => void;
   updateSettings: (s: Partial<AppSettings>) => void;
   toggleNutrient: (key: keyof AppSettings["enabledNutrients"]) => void;
@@ -68,18 +49,23 @@ interface AppActions {
   logReading: (s: ReadingSession) => void;
   sendChat: (text: string) => void;
   resetAll: () => void;
-  saveData: () => void;
-  loadData: () => void;
-  syncToSheet: () => void;
-  sheetLoadWarning: string | null;
-  clearSheetLoadWarning: () => void;
-  sessionExpired: boolean;
 }
 
 type Ctx = AppState & AppActions;
 const AppCtx = createContext<Ctx | null>(null);
 
+// Same key as the web app. All data lives on the device (WebView local storage).
 const STORAGE_KEY = "novaself.v1";
+
+// A fresh install starts empty (same as a brand-new account in the web app),
+// then the Welcome screen collects the profile.
+function baseState(): AppState {
+  return {
+    onboarded: false,
+    ...emptyUserState(),
+    settings: defaultSettings,
+  };
+}
 
 function loadInitial(): AppState {
   if (typeof window === "undefined") return baseState();
@@ -97,201 +83,43 @@ function loadInitial(): AppState {
   return baseState();
 }
 
-function baseState(): AppState {
-  return {
-    signedIn: false,
-    onboarded: false,
-    googleAccount: null,
-    profile: defaultProfile,
-    profileUpdatedAt: 0,
-    settings: defaultSettings,
-    settingsUpdatedAt: 0,
-    days: defaultDays,
-    dietPhases: defaultDietPhases,
-    mess: defaultMess,
-    workoutPhases: defaultWorkoutPhases,
-    skinLogs: defaultSkinLogs,
-    sleepLogs: defaultSleepLogs,
-    supplements: defaultSupplements,
-    intakes: defaultIntakes,
-    books: defaultBooks,
-    readingSessions: defaultReading,
-    chat: [],
-  };
-}
-
-/** True when a and b agree on every field the backend syncs — used to skip a
- *  no-op setState after a sync so the autosave effect doesn't loop forever. */
-function syncableEqual(a: AppState, b: AppState): boolean {
-  return JSON.stringify(pickSyncable(a)) === JSON.stringify(pickSyncable(b));
-}
-
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadInitial());
-  const [sheetLoadWarning, setSheetLoadWarning] = useState<string | null>(null);
-  const [sessionExpired, setSessionExpired] = useState(false);
 
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateRef = useRef<AppState>(state);
-  useEffect(() => { stateRef.current = state; }, [state]);
-
+  // Persist every change locally.
   useEffect(() => {
-    if (typeof window === "undefined") return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
-      console.error("[store] localStorage save failed:", e);
+      console.error("[store] local save failed:", e);
     }
   }, [state]);
 
   useEffect(() => {
-    if (typeof document === "undefined") return;
     const root = document.documentElement;
     root.classList.toggle("light", state.settings.theme === "light");
     root.classList.toggle("dark", state.settings.theme === "dark");
   }, [state.settings.theme]);
-
-  /** The one and only path that talks to the backend for data. Push local
-   *  state, adopt whatever comes back (the merged truth — may include
-   *  another device's edits). Used by autosave, focus, and the poll interval. */
-  const doSync = useCallback(async () => {
-    try {
-      const result = await syncState(pickSyncable(stateRef.current));
-      if (!result) {
-        setSessionExpired(true);
-        return;
-      }
-      setSessionExpired(false);
-      setState((s) => {
-        const next = { ...s, ...(result.data as Partial<AppState>) };
-        return syncableEqual(s, next) ? s : next; // bail out on no-op to avoid re-triggering the effect
-      });
-    } catch (err) {
-      console.warn("[store] sync failed (will retry):", err);
-    }
-  }, []);
-
-  // Debounced autosave on local edits.
-  // Guard requires BOTH signedIn AND onboarded — this is the fix. Without
-  // `state.onboarded` here, a signed-in-but-not-yet-onboarded session could
-  // push the app's built-in sample/demo data to Drive as if it were real.
-  useEffect(() => {
-    if (!state.signedIn || !state.onboarded) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(doSync, 3000);
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [state, doSync]);
-
-  // Pick up other devices' edits on focus / tab-visible / a timer.
-  // Same guard fix as above.
-  useEffect(() => {
-    if (!state.signedIn || !state.onboarded) return;
-    const onVisibility = () => { if (document.visibilityState === "visible") doSync(); };
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", doSync);
-    const interval = setInterval(doSync, 45_000);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", doSync);
-      clearInterval(interval);
-    };
-  }, [state.signedIn, state.onboarded, doSync]);
-
-  const reconnectGoogle = useCallback(async () => {
-    const me = await fetchMe();
-    if (!me) {
-      // Refresh token itself is dead server-side — only a full re-login fixes this.
-      goToGoogleLogin();
-      return;
-    }
-    await doSync();
-  }, [doSync]);
-
-  const restoreSession = useCallback(async (): Promise<boolean> => {
-    const me = await fetchMe();
-    if (!me) return false;
-    const googleAccount: GoogleAccount = { email: me.email, name: me.name };
-
-    try {
-      const result = await fetchState();
-      if (!result) return false;
-      setSessionExpired(false);
-
-      if (result.isNewlyCreated) {
-        setState((s) => ({
-          ...s,
-          ...emptyUserState(),
-          settings: s.settings,
-          googleAccount,
-          signedIn: true,
-          onboarded: false,
-        }));
-        return true;
-      }
-
-      setState((s) => ({
-        ...s,
-        ...(result.data as Partial<AppState>),
-        settings: { ...defaultSettings, ...((result.data as Partial<AppState>).settings ?? {}) },
-        googleAccount,
-        signedIn: true,
-        onboarded: true,
-      }));
-      return true;
-    } catch (err) {
-      console.error("[store] restoreSession: fetchState failed:", err);
-      setSheetLoadWarning(
-        "Couldn't reach the server to load your data (network issue). " +
-        "Your local data is safe — it'll sync automatically once the connection is back.",
-      );
-      setState((s) => ({ ...s, googleAccount, signedIn: true }));
-      return true;
-    }
-  }, []);
 
   const value = useMemo<Ctx>(() => {
     const update = (patch: Partial<AppState>) => setState((s) => ({ ...s, ...patch }));
 
     return {
       ...state,
-      sheetLoadWarning,
-      sessionExpired,
-      clearSheetLoadWarning: () => setSheetLoadWarning(null),
-      reconnectGoogle,
-      restoreSession,
-
-      signInGoogle: async () => {
-        goToGoogleLogin();
-      },
-
-      signOut: async () => {
-        await signOutOfGoogle();
-        setSheetLoadWarning(null);
-        setSessionExpired(false);
-        update({ signedIn: false, onboarded: false, googleAccount: null });
-      },
 
       saveProfile: (p) =>
         setState((s) => ({
           ...s,
           profile: { ...s.profile, ...p },
-          profileUpdatedAt: Date.now(),
           onboarded: true,
         })),
 
       updateSettings: (sp) =>
-        setState((s) => ({
-          ...s,
-          settings: { ...s.settings, ...sp },
-          settingsUpdatedAt: Date.now(),
-        })),
+        setState((s) => ({ ...s, settings: { ...s.settings, ...sp } })),
 
       toggleNutrient: (key) =>
         setState((s) => ({
           ...s,
-          settingsUpdatedAt: Date.now(),
           settings: {
             ...s.settings,
             enabledNutrients: {
@@ -304,7 +132,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addCustomNutrient: (n) =>
         setState((s) => ({
           ...s,
-          settingsUpdatedAt: Date.now(),
           settings: {
             ...s.settings,
             customNutrients: [...s.settings.customNutrients, n],
@@ -317,7 +144,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const { [id]: _removed, ...restEnabled } = s.settings.enabledCustomNutrients;
           return {
             ...s,
-            settingsUpdatedAt: Date.now(),
             settings: {
               ...s.settings,
               customNutrients: s.settings.customNutrients.filter((n) => n.id !== id),
@@ -329,7 +155,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toggleCustomNutrient: (id) =>
         setState((s) => ({
           ...s,
-          settingsUpdatedAt: Date.now(),
           settings: {
             ...s.settings,
             enabledCustomNutrients: {
@@ -340,11 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         })),
 
       clearOllamaUrl: () =>
-        setState((s) => ({
-          ...s,
-          settings: { ...s.settings, ollamaUrl: "" },
-          settingsUpdatedAt: Date.now(),
-        })),
+        setState((s) => ({ ...s, settings: { ...s.settings, ollamaUrl: "" } })),
 
       upsertDay: (day) =>
         setState((s) => {
@@ -444,17 +265,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           return { ...s, chat: [...s.chat, userMsg, reply] };
         }),
 
-      resetAll: () => {
-        setSheetLoadWarning(null);
-        setSessionExpired(false);
-        setState(baseState());
-      },
-
-      saveData: doSync,
-      loadData: doSync,
-      syncToSheet: doSync,
+      resetAll: () => setState(baseState()),
     };
-  }, [state, sheetLoadWarning, sessionExpired, reconnectGoogle, restoreSession, doSync]);
+  }, [state]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

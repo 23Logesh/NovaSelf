@@ -1,22 +1,24 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, Plus, RotateCcw, X } from "lucide-react";
+import { Download, Plus, RotateCcw, X } from "lucide-react";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
 import { useApp } from "@/lib/novaself/store";
+import { runExport } from "@/lib/novaself/exportExcel";
 import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
 import type { ActivityLevel } from "@/lib/novaself/calculations";
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 export default function Settings() {
+  const app = useApp();
   const {
     settings, updateSettings, toggleNutrient,
     addCustomNutrient, removeCustomNutrient, toggleCustomNutrient,
     profile, saveProfile,
-    googleAccount,
-    signOut, resetAll, clearOllamaUrl,
-  } = useApp();
+    resetAll, clearOllamaUrl,
+  } = app;
+  const [exporting, setExporting] = useState(false);
   const navigate = useNavigate();
 
   const [customDraft, setCustomDraft] = useState({ name: "", unit: "g" });
@@ -208,40 +210,34 @@ export default function Settings() {
         </div>
       </NCard>
 
-      {/* Multi-user info */}
+      {/* Data export */}
       <NCard>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Multi-user accounts</h3>
-        <p className="text-xs text-muted-foreground">
-          Each Google account gets its own private "NovaSelf Data" Sheet in their own Drive.
-          No shared backend — one account's data can never reach another's.
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Your data</h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Everything is stored on this phone only. Export a full Excel backup (one sheet per section)
+          and save it to Drive, Files, or send it anywhere.
         </p>
+        <button
+          onClick={async () => {
+            setExporting(true);
+            try { await runExport(app); } finally { setExporting(false); }
+          }}
+          disabled={exporting}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--electric)] py-3 text-sm font-semibold text-[var(--primary-foreground)] disabled:opacity-50"
+        >
+          <Download className="h-4 w-4" /> {exporting ? "Preparing…" : "Export to Excel"}
+        </button>
       </NCard>
 
       {/* Danger zone */}
       <NCard>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-destructive">Danger zone</h3>
-
-        {/* Signed-in account indicator — above sign-out so it's clear what will be signed out */}
-        {googleAccount && (
-          <div className="mb-3 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Signed in as</p>
-            <p className="mt-0.5 truncate text-sm font-medium text-foreground">{googleAccount.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{googleAccount.email}</p>
-          </div>
-        )}
-
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => { if (confirm("Reset all local data?")) { resetAll(); navigate("/welcome"); } }}
             className="flex items-center gap-2 rounded-xl border border-border bg-[var(--surface-elevated)] px-4 py-2 text-sm text-muted-foreground hover:border-destructive hover:text-destructive"
           >
             <RotateCcw className="h-4 w-4" /> Reset all data
-          </button>
-          <button
-            onClick={() => { signOut(); navigate("/welcome"); }}
-            className="flex items-center gap-2 rounded-xl border border-border bg-[var(--surface-elevated)] px-4 py-2 text-sm text-muted-foreground hover:border-destructive hover:text-destructive"
-          >
-            <LogOut className="h-4 w-4" /> Sign out
           </button>
         </div>
       </NCard>

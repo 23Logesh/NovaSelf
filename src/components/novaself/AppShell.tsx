@@ -3,9 +3,10 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import {
   Activity, Apple, BookOpen, Dumbbell, Home, Pill, Settings as Cog,
   Sparkles, Sun, Moon, LineChart, Salad, Droplets, MessageSquare,
-  MoreHorizontal, X, AlertTriangle,
+  MoreHorizontal, X, Download,
 } from "lucide-react";
 import { useApp } from "@/lib/novaself/store";
+import { runExport } from "@/lib/novaself/exportExcel";
 
 const nav = [
   { to: "/dashboard", label: "Home", icon: Home },
@@ -26,22 +27,19 @@ const moreNav = [
 ] as const;
 
 export function AppShell() {
-  const {
-    settings, updateSettings, profile, googleAccount,
-    sheetLoadWarning, clearSheetLoadWarning,
-    sessionExpired, reconnectGoogle,
-  } = useApp();
+  const app = useApp();
+  const { settings, updateSettings, profile } = app;
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
-  const [reconnecting, setReconnecting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  async function handleReconnect() {
-    setReconnecting(true);
+  async function handleExport() {
+    setExporting(true);
     try {
-      await reconnectGoogle();
+      await runExport(app);
     } finally {
-      setReconnecting(false);
+      setExporting(false);
     }
   }
 
@@ -58,7 +56,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl">
+      <header className="sticky top-0 z-30 border-b border-border/60 bg-background/70 backdrop-blur-xl pt-[env(safe-area-inset-top,0px)]">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_24px_var(--electric)]">
@@ -69,15 +67,6 @@ export function AppShell() {
               <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                 {profile.name || "—"}
               </span>
-              {/* Google account email — shown when signed in, truncated to avoid overflow */}
-              {googleAccount?.email && (
-                <span
-                  className="max-w-[160px] truncate text-[9px] leading-tight text-muted-foreground/60"
-                  title={googleAccount.email}
-                >
-                  {googleAccount.email}
-                </span>
-              )}
             </div>
           </Link>
 
@@ -104,51 +93,33 @@ export function AppShell() {
               })}
           </nav>
 
-          <button
-            onClick={() => updateSettings({ theme: settings.theme === "dark" ? "light" : "dark" })}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-[var(--surface)] text-muted-foreground transition hover:text-foreground"
-            aria-label="Toggle theme"
-          >
-            {settings.theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={handleExport}
+              disabled={exporting}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-[var(--surface)] text-muted-foreground transition hover:text-foreground disabled:opacity-50"
+              aria-label="Export to Excel"
+              title="Export to Excel"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => updateSettings({ theme: settings.theme === "dark" ? "light" : "dark" })}
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-[var(--surface)] text-muted-foreground transition hover:text-foreground"
+              aria-label="Toggle theme"
+            >
+              {settings.theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-28 pt-6 lg:pb-12">
-        {sessionExpired && (
-          <div className="mb-4 flex items-start gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span className="flex-1">
-              Your session expired — your changes are safe locally.
-              Tap <strong>Reconnect</strong> to sync them to Google Sheets.
-            </span>
-            <button
-              onClick={handleReconnect}
-              disabled={reconnecting}
-              className="shrink-0 rounded-md border border-red-400/40 bg-red-500/20 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-500/30 disabled:opacity-50"
-            >
-              {reconnecting ? "Reconnecting…" : "Reconnect"}
-            </button>
-          </div>
-        )}
-        {sheetLoadWarning && (
-          <div className="mb-4 flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span className="flex-1">{sheetLoadWarning}</span>
-            <button
-              onClick={clearSheetLoadWarning}
-              className="shrink-0 text-amber-400/60 transition hover:text-amber-400"
-              aria-label="Dismiss warning"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
         <Outlet />
       </main>
 
       {/* ── Mobile bottom nav ── */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/60 bg-background/85 backdrop-blur-xl lg:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/60 bg-background/85 backdrop-blur-xl lg:hidden pb-[env(safe-area-inset-bottom,0px)]">
         <div className="mx-auto grid max-w-md grid-cols-6 px-2 py-1.5">
           {nav.map((item) => {
             const Icon = item.icon;
