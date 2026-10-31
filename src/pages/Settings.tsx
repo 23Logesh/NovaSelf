@@ -9,7 +9,7 @@ import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
 import { AppTour } from "@/components/novaself/AppTour";
 import { useApp } from "@/lib/novaself/store";
-import { runExport } from "@/lib/novaself/exportExcel";
+import { runExport, parseExcelBackup } from "@/lib/novaself/exportExcel";
 import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
 import { isoDate } from "@/lib/novaself/calculations";
 import type { ActivityLevel } from "@/lib/novaself/calculations";
@@ -297,6 +297,26 @@ export default function Settings() {
               />
             </label>
           </div>
+
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-[var(--surface-elevated)] py-2.5 text-xs font-semibold text-foreground hover:border-[var(--electric)] transition w-full">
+            <Upload className="h-4 w-4 text-[var(--electric)]" /> Import Data from Excel (.xlsx)
+            <input
+              type="file"
+              accept=".xlsx, .xls"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  await parseExcelBackup(file);
+                  toast.success("Excel data imported successfully! Reloading...");
+                  setTimeout(() => window.location.reload(), 800);
+                } catch {
+                  toast.error("Failed to import Excel file.");
+                }
+              }}
+            />
+          </label>
         </div>
       </NCard>
 

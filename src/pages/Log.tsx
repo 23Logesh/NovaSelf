@@ -85,9 +85,12 @@ export default function LogPage() {
       {tab === "food" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Calorie History"
-            subtitle="Past 7 days daily caloric intake"
-            data={getFoodTrend(appState)}
+            title="Calorie History"
+            subtitle="Daily caloric intake trend"
+            data7={getFoodTrend(appState, 7)}
+            data30={getFoodTrend(appState, 30)}
+            data90={getFoodTrend(appState, 90)}
+            data365={getFoodTrend(appState, 365)}
             goal={calorieTarget(profile)}
             unit="kcal"
             color="var(--electric)"
@@ -104,9 +107,12 @@ export default function LogPage() {
       {tab === "water" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Hydration History"
-            subtitle="Past 7 days daily water intake"
-            data={getWaterTrend(appState)}
+            title="Hydration History"
+            subtitle="Daily water intake trend"
+            data7={getWaterTrend(appState, 7)}
+            data30={getWaterTrend(appState, 30)}
+            data90={getWaterTrend(appState, 90)}
+            data365={getWaterTrend(appState, 365)}
             goal={waterTargetMl(profile)}
             unit="ml"
             color="var(--electric)"
@@ -117,9 +123,12 @@ export default function LogPage() {
       {tab === "workout" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Workout Burn History"
-            subtitle="Past 7 days calories burned during exercises"
-            data={getWorkoutTrend(appState)}
+            title="Workout Burn History"
+            subtitle="Calories burned during exercises"
+            data7={getWorkoutTrend(appState, 7)}
+            data30={getWorkoutTrend(appState, 30)}
+            data90={getWorkoutTrend(appState, 90)}
+            data365={getWorkoutTrend(appState, 365)}
             unit="kcal"
             color="var(--neon)"
           />
@@ -129,9 +138,12 @@ export default function LogPage() {
       {tab === "weight" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Weight Log History"
-            subtitle="Past 7 days recorded weight"
-            data={getWeightTrend(appState)}
+            title="Weight Log History"
+            subtitle="Recorded body weight trend"
+            data7={getWeightTrend(appState, 7)}
+            data30={getWeightTrend(appState, 30)}
+            data90={getWeightTrend(appState, 90)}
+            data365={getWeightTrend(appState, 365)}
             goal={profile.goalWeightKg}
             unit="kg"
             color="var(--electric)"
@@ -146,9 +158,12 @@ export default function LogPage() {
       {tab === "supplements" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Supplement Intakes"
-            subtitle="Past 7 days total doses taken"
-            data={getSupplementTrend(appState)}
+            title="Supplement Intakes"
+            subtitle="Total doses taken per day"
+            data7={getSupplementTrend(appState, 7)}
+            data30={getSupplementTrend(appState, 30)}
+            data90={getSupplementTrend(appState, 90)}
+            data365={getSupplementTrend(appState, 365)}
             unit="doses"
             color="var(--electric)"
           />
@@ -161,9 +176,12 @@ export default function LogPage() {
       {tab === "skin" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Skin & Hair Care Score"
+            title="Skin & Hair Care Score"
             subtitle="Completed checklist items per day (0–5)"
-            data={getSkinTrend(appState)}
+            data7={getSkinTrend(appState, 7)}
+            data30={getSkinTrend(appState, 30)}
+            data90={getSkinTrend(appState, 90)}
+            data365={getSkinTrend(appState, 365)}
             goal={5}
             unit="tasks"
             color="var(--neon)"
@@ -174,9 +192,12 @@ export default function LogPage() {
       {tab === "sleep" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Sleep Duration"
-            subtitle="Past 7 days hours slept per night"
-            data={getSleepTrend(appState)}
+            title="Sleep Duration"
+            subtitle="Hours slept per night"
+            data7={getSleepTrend(appState, 7)}
+            data30={getSleepTrend(appState, 30)}
+            data90={getSleepTrend(appState, 90)}
+            data365={getSleepTrend(appState, 365)}
             goal={8}
             unit="hrs"
             color="var(--electric)"
@@ -187,9 +208,12 @@ export default function LogPage() {
       {tab === "books" && (
         <div className="space-y-4">
           <MiniTrendChart
-            title="7-Day Reading Volume"
-            subtitle="Pages read per day across all books"
-            data={getReadingTrend(appState)}
+            title="Reading Volume"
+            subtitle="Pages read per day"
+            data7={getReadingTrend(appState, 7)}
+            data30={getReadingTrend(appState, 30)}
+            data90={getReadingTrend(appState, 90)}
+            data365={getReadingTrend(appState, 365)}
             unit="pages"
             color="var(--electric)"
           />

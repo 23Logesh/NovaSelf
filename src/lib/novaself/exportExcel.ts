@@ -181,8 +181,6 @@ export function buildWorkbook(s: AppState): XLSX.WorkBook {
   return wb;
 }
 
-/** Builds the .xlsx and hands it to the user: Android share sheet (Save to
- *  Drive / Files / WhatsApp…) on the phone, a normal download in a browser. */
 export async function exportToExcel(state: AppState): Promise<string> {
   const wb = buildWorkbook(state);
   const fileName = `NovaSelf-export-${isoDate()}.xlsx`;
@@ -197,7 +195,46 @@ export async function exportToExcel(state: AppState): Promise<string> {
   return fileName;
 }
 
-/** UI-safe wrapper: ignores the user dismissing the share sheet, alerts on real errors. */
+export async function parseExcelBackup(file: File): Promise<boolean> {
+  try {
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: "array" });
+    const profileSheet = workbook.Sheets["Profile"];
+    if (!profileSheet) {
+      throw new Error("Invalid Excel format: 'Profile' sheet not found.");
+    }
+    const profileData = XLSX.utils.sheet_to_json<Record<string, any>>(profileSheet, { header: 1 });
+    const newProfile: Record<string, any> = {};
+    for (const row of profileData) {
+      if (Array.isArray(row) && row.length >= 2) {
+        const key = String(row[0]).trim();
+        const val = row[1];
+        if (key === "Name") newProfile.name = String(val);
+        if (key === "Age") newProfile.age = Number(val) || 0;
+        if (key === "Sex") newProfile.sex = String(val) === "female" ? "female" : "male";
+        if (key === "Height (cm)") newProfile.heightCm = Number(val) || 0;
+        if (key === "Weight (kg)") newProfile.weightKg = Number(val) || 0;
+        if (key === "Goal weight (kg)") newProfile.goalWeightKg = Number(val) || 0;
+        if (key === "Starting weight (kg)") newProfile.startingWeightKg = Number(val) || 0;
+        if (key === "Activity level") newProfile.activity = String(val) || "moderate";
+      }
+    }
+
+    const raw = window.localStorage.getItem("novaself.v1");
+    const current = raw ? JSON.parse(raw) : {};
+    const updated = {
+      ...current,
+      profile: { ...(current.profile || {}), ...newProfile },
+      onboarded: true,
+    };
+    window.localStorage.setItem("novaself.v1", JSON.stringify(updated));
+    return true;
+  } catch (e) {
+    console.error("Excel import failed:", e);
+    throw e;
+  }
+}
+
 export async function runExport(state: AppState): Promise<boolean> {
   try {
     await exportToExcel(state);

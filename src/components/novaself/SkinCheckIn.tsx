@@ -1,14 +1,10 @@
-import { Check } from "lucide-react";
+import { Check, RotateCcw } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { NCard } from "@/components/novaself/NCard";
 import { useApp, today } from "@/lib/novaself/store";
 import type { SkinLog } from "@/lib/novaself/types";
 
-/**
- * Full skin & hair daily check-in form.
- * Reads today's existing log (if any) from store and auto-saves on every
- * interaction. Used by both Log.tsx (Skin tab) and the standalone Skin page.
- */
 export function SkinCheckIn() {
   const { skinLogs, upsertSkin } = useApp();
   const existing = skinLogs.find((s) => s.date === today());
@@ -28,10 +24,43 @@ export function SkinCheckIn() {
     upsertSkin(next);
   }
 
+  function resetLog() {
+    const prev = existing;
+    const blank: SkinLog = {
+      date: today(),
+      faceWash: false, moisturizer: false, sunscreen: false,
+      hairOil: false, scalpMassage: false,
+      oiliness: 3, hairFall: 3,
+      pimples: 0, darkPatchChange: false,
+    };
+    setLog(blank);
+    upsertSkin(blank);
+    toast("Skin check-in reset", {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          if (prev) {
+            setLog(prev);
+            upsertSkin(prev);
+          }
+        },
+      },
+    });
+  }
+
   return (
     <div className="space-y-4">
       <NCard>
-        <h3 className="mb-3 text-xs uppercase tracking-wider text-muted-foreground">Checklist</h3>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Checklist</h3>
+          <button
+            onClick={resetLog}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition"
+            title="Reset skin log"
+          >
+            <RotateCcw className="h-3 w-3" /> Reset Log
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
           {(
             [
