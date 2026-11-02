@@ -11,6 +11,7 @@ import { AppTour } from "@/components/novaself/AppTour";
 import { useApp } from "@/lib/novaself/store";
 import { runExport, parseExcelBackup } from "@/lib/novaself/exportExcel";
 import { runAllLogicTests, type TestResult } from "@/lib/novaself/tests";
+import { testAIConnection } from "@/lib/novaself/aiTest";
 import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
 import { isoDate } from "@/lib/novaself/calculations";
 import type { ActivityLevel } from "@/lib/novaself/calculations";
@@ -27,6 +28,7 @@ export default function Settings() {
   } = app;
   const [exporting, setExporting] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [testingAi, setTestingAi] = useState(false);
   const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const navigate = useNavigate();
 
@@ -194,7 +196,7 @@ export default function Settings() {
               <button
                 key={p}
                 onClick={() => {
-                  const defaultModel = p === "gemini" ? "gemini-1.5-flash" : p === "openai" ? "gpt-4o-mini" : p === "claude" ? "claude-3-5-sonnet-20241022" : "llama3";
+                  const defaultModel = p === "gemini" ? "gemini-flash-latest" : p === "openai" ? "gpt-4o-mini" : p === "claude" ? "claude-3-5-sonnet-20241022" : "llama3";
                   updateSettings({ aiProvider: p as any, aiModel: defaultModel });
                 }}
                 className={`rounded-xl border p-2.5 text-xs font-semibold capitalize transition ${
@@ -222,13 +224,13 @@ export default function Settings() {
 
               <Field label="Model Name">
                 <select
-                  value={settings.aiModel || (settings.aiProvider === "gemini" ? "gemini-1.5-flash" : settings.aiProvider === "openai" ? "gpt-4o-mini" : "claude-3-5-sonnet-20241022")}
+                  value={settings.aiModel || (settings.aiProvider === "gemini" ? "gemini-flash-latest" : settings.aiProvider === "openai" ? "gpt-4o-mini" : "claude-3-5-sonnet-20241022")}
                   onChange={(e) => updateSettings({ aiModel: e.target.value })}
                   className={ic}
                 >
                   {settings.aiProvider === "gemini" && (
                     <>
-                      <option value="gemini-1.5-flash">gemini-1.5-flash (Recommended & Fast)</option>
+                      <option value="gemini-flash-latest">gemini-flash-latest (Recommended & Fast)</option>
                       <option value="gemini-1.5-pro">gemini-1.5-pro (Advanced Reasoning)</option>
                       <option value="gemini-2.0-flash">gemini-2.0-flash (Latest)</option>
                     </>
@@ -248,6 +250,28 @@ export default function Settings() {
                   )}
                 </select>
               </Field>
+
+              <button
+                onClick={async () => {
+                  setTestingAi(true);
+                  try {
+                    const result = await testAIConnection(settings.aiProvider, settings.aiApiKey, settings.aiModel);
+                    if (result.success) {
+                      toast.success(result.message);
+                    } else {
+                      toast.error(result.message);
+                    }
+                  } catch (e) {
+                    toast.error(String(e));
+                  } finally {
+                    setTestingAi(false);
+                  }
+                }}
+                disabled={testingAi || !settings.aiApiKey?.trim()}
+                className="w-full rounded-xl bg-[var(--electric)] py-2.5 text-xs font-bold text-[var(--primary-foreground)] disabled:opacity-40 transition shadow-[0_0_15px_var(--electric)]"
+              >
+                {testingAi ? "Testing API Key Connection Live..." : "⚡ Test API Key Connection Live"}
+              </button>
             </>
           ) : (
             <Field label="Ollama URL">

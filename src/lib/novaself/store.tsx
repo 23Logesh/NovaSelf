@@ -1,5 +1,5 @@
 import {
-  createContext, useContext, useEffect, useMemo, useState, type ReactNode,
+  createContext, useContext, useEffect, useMemo, useState, useRef, type ReactNode,
 } from "react";
 import type {
   AppSettings, Book, ChatMessage, CustomNutrient, DayLog, DietPhase, MessItem,
@@ -50,17 +50,18 @@ interface AppActions {
   setBooks: (b: Book[]) => void;
   logReading: (s: ReadingSession) => void;
   sendChat: (text: string) => void;
+  aiMutate: (fn: (s: AppState) => { state: AppState; result: Record<string, unknown> }) => Record<string, unknown>;
+  getState: () => AppState;
+  restoreData: (snap: Partial<AppState>) => void;
+  appendChat: (m: ChatMessage) => void;
   resetAll: () => void;
 }
 
 type Ctx = AppState & AppActions;
 const AppCtx = createContext<Ctx | null>(null);
 
-// Same key as the web app. All data lives on the device (WebView local storage).
 const STORAGE_KEY = "novaself.v1";
 
-// A fresh install starts empty (same as a brand-new account in the web app),
-// then the Welcome screen collects the profile.
 function baseState(): AppState {
   return {
     onboarded: false,
@@ -69,26 +70,81 @@ function baseState(): AppState {
   };
 }
 
+function sanitizeStoredState(raw: unknown): AppState {
+  const next = baseState();
+  if (!raw || typeof raw !== "object") return next;
+
+  const obj = raw as Partial<AppState>;
+  const normalizedProfile = obj.profile && typeof obj.profile === "object"
+    ? { ...next.profile, ...obj.profile }
+    : next.profile;
+
+  const nextSettings = obj.settings && typeof obj.settings === "object"
+    ? {
+        ...defaultSettings,
+        ...obj.settings,
+        enabledNutrients: {
+          ...defaultSettings.enabledNutrients,
+          ...((obj.settings as Partial<AppSettings>)?.enabledNutrients ?? {}),
+        },
+        dashboardRings: {
+          ...defaultSettings.dashboardRings,
+          ...((obj.settings as Partial<AppSettings>)?.dashboardRings ?? {}),
+        },
+        customNutrients: Array.isArray((obj.settings as Partial<AppSettings>)?.customNutrients)
+          ? (obj.settings as Partial<AppSettings>)?.customNutrients ?? []
+          : defaultSettings.customNutrients,
+        customFoodPresets: Array.isArray((obj.settings as Partial<AppSettings>)?.customFoodPresets)
+          ? (obj.settings as Partial<AppSettings>)?.customFoodPresets ?? []
+          : defaultSettings.customFoodPresets,
+        enabledCustomNutrients: (obj.settings as Partial<AppSettings>)?.enabledCustomNutrients && typeof (obj.settings as Partial<AppSettings>)?.enabledCustomNutrients === "object"
+          ? (obj.settings as Partial<AppSettings>)?.enabledCustomNutrients ?? {}
+          : defaultSettings.enabledCustomNutrients,
+      }
+    : defaultSettings;
+
+  return {
+    ...next,
+    ...obj,
+    onboarded: !!obj.onboarded,
+    profile: normalizedProfile,
+    settings: nextSettings,
+    days: Array.isArray(obj.days) ? obj.days : next.days,
+    dietPhases: Array.isArray(obj.dietPhases) ? obj.dietPhases : next.dietPhases,
+    mess: Array.isArray(obj.mess) ? obj.mess : next.mess,
+    workoutPhases: Array.isArray(obj.workoutPhases) ? obj.workoutPhases : next.workoutPhases,
+    skinLogs: Array.isArray(obj.skinLogs) ? obj.skinLogs : next.skinLogs,
+    sleepLogs: Array.isArray(obj.sleepLogs) ? obj.sleepLogs : next.sleepLogs,
+    supplements: Array.isArray(obj.supplements) ? obj.supplements : next.supplements,
+    intakes: Array.isArray(obj.intakes) ? obj.intakes : next.intakes,
+    books: Array.isArray(obj.books) ? obj.books : next.books,
+    readingSessions: Array.isArray(obj.readingSessions) ? obj.readingSessions : next.readingSessions,
+    chat: Array.isArray(obj.chat) ? obj.chat : next.chat,
+  };
+}
+
 function loadInitial(): AppState {
   if (typeof window === "undefined") return baseState();
+
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      return {
-        ...baseState(),
-        ...parsed,
-        settings: { ...defaultSettings, ...parsed.settings },
-      };
-    }
-  } catch {}
-  return baseState();
+    if (!raw) return baseState();
+
+    const parsed = JSON.parse(raw);
+    return sanitizeStoredState(parsed);
+  } catch {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+    return baseState();
+  }
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => loadInitial());
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; }, [state]);
 
-  // Persist every change locally.
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -274,6 +330,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           };
           return { ...s, chat: [...s.chat, userMsg, reply] };
         }),
+
+      aiMutate: (fn) => {
+        const r = fn(stateRef.current);
+        const { chat: _c, ...data } = r.state; // never overwrite chat from here
+        stateRef.current = { ...stateRef.current, ...data };
+        setState((s) => ({ ...s, ...data }));
+        return r.result;
+      },
+      getState: () => stateRef.current,
+      restoreData: (snap) => {
+        const { chat: _c, settings: _s, ...data } = snap as AppState;
+        stateRef.current = { ...stateRef.current, ...data };
+        setState((s) => ({ ...s, ...data }));
+      },
+      appendChat: (m) => setState((s) => ({ ...s, chat: [...s.chat, m].slice(-200) })),
 
       resetAll: () => setState(baseState()),
     };

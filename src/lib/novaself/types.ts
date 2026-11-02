@@ -117,7 +117,8 @@ export interface SupplementIntake { id: string; supplementId: string; date: stri
 export interface Book { id: string; title: string; author: string; totalPages: number; pagesRead: number; completed: boolean }
 export interface ReadingSession { id: string; bookId: string; date: string; pages: number; minutes: number; notes?: string }
 
-export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; ts: number }
+export interface ChatAttachment { name: string; kind: "image" | "pdf" | "text" | "sheet"; thumb?: string }
+export interface ChatMessage { id: string; role: "user" | "assistant"; content: string; ts: number; attachments?: ChatAttachment[] }
 
 export type GoalMode = "fat_loss" | "muscle_gain" | "maintenance";
 
