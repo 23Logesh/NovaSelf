@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  Activity, Apple, BookOpen, Dumbbell, Home, Pill, Settings as Cog,
+  Activity, Zap, BookOpen, Dumbbell, Home, Pill, Settings as Cog,
   Sparkles, Sun, Moon, LineChart, Salad, Droplets, MessageSquare,
-  MoreHorizontal, X, Download,
+  MoreHorizontal, X, Download, ShieldCheck,
 } from "lucide-react";
 import { useApp } from "@/lib/novaself/store";
 import { runExport } from "@/lib/novaself/exportExcel";
+import { FloatingActionButton } from "@/components/novaself/FloatingActionButton";
 
 const nav = [
   { to: "/dashboard", label: "Home", icon: Home },
@@ -43,7 +44,7 @@ export function AppShell() {
     }
   }
 
-  const aiChatAvailable = settings.ollamaUrl.trim().length > 0;
+  const aiChatAvailable = settings.ollamaUrl.trim().length > 0 || (settings.aiApiKey && settings.aiApiKey.trim().length > 0);
   const moreNavActive = moreNav.some((item) => pathname.startsWith(item.to));
   const visibleMoreNav = moreNav.filter(
     (item) => !(("gated" in item) && item.gated) || aiChatAvailable,
@@ -60,7 +61,7 @@ export function AppShell() {
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
           <Link to="/dashboard" className="flex min-w-0 items-center gap-2">
             <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_24px_var(--electric)]">
-              <Apple className="h-5 w-5" />
+              <Zap className="h-5 w-5 fill-current" />
             </div>
             <div className="flex min-w-0 flex-col leading-tight">
               <span className="font-display text-lg font-bold tracking-tight">NovaSelf</span>
@@ -197,6 +198,9 @@ export function AppShell() {
           </div>
         </>
       )}
+
+      {/* WhatsApp / Instagram Floating Action Button */}
+      <FloatingActionButton />
     </div>
   );
 }

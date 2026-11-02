@@ -23,7 +23,8 @@ export const defaultProfile: Profile = {
 };
 
 export const defaultSettings: AppSettings = {
-  theme: "dark",
+  theme: "cyber",
+  goalMode: "fat_loss",
   enabledNutrients: {
     carbs: true, fat: true, satFat: false, sugar: false, sodium: false,
     potassium: false, calcium: false, iron: false, vitD: false, vitB12: false,
@@ -31,7 +32,17 @@ export const defaultSettings: AppSettings = {
   },
   customNutrients: [],
   enabledCustomNutrients: {},
+  customFoodPresets: [],
+  dashboardRings: {
+    calories: true,
+    protein: true,
+    water: true,
+    fiber: true,
+  },
   ollamaUrl: "",
+  aiProvider: "openai",
+  aiApiKey: "",
+  aiModel: "gpt-4o-mini",
 };
 
 function makeDay(date: string, weight?: number): DayLog {

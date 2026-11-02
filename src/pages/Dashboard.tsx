@@ -1,14 +1,17 @@
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { useState, useEffect } from "react";
 import {
   Flame, Zap, BookOpen, Pencil, TrendingDown,
   Dumbbell, Salad, Droplets, Pill, Sparkles, Moon,
-  CalendarDays, Plus, AlertCircle, Scale, Activity,
+  CalendarDays, AlertCircle, Scale,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { ProgressRing } from "@/components/novaself/ProgressRing";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
+import { AppTour } from "@/components/novaself/AppTour";
+import { StoryBar } from "@/components/novaself/StoryBar";
 import { useApp, today } from "@/lib/novaself/store";
 import {
   calorieTarget, proteinTargetG, fiberTargetG, waterTargetMl, goalProgressPct, isoDate,
@@ -70,6 +73,14 @@ const CATEGORY_META: Record<TimelineCategory, CategoryMeta> = {
 function DailyTimeline({ date }: { date: string }) {
   const state = useApp();
   const entries = buildDailyTimeline(date, state);
+  const [reactions, setReactions] = useState<Record<string, string>>({});
+
+  function toggleReaction(id: string, emoji: string) {
+    setReactions((prev) => ({
+      ...prev,
+      [id]: prev[id] === emoji ? "" : emoji,
+    }));
+  }
 
   if (entries.length === 0) {
     return (
@@ -78,9 +89,7 @@ function DailyTimeline({ date }: { date: string }) {
         <div>
           <p className="font-medium text-foreground">Nothing logged yet today</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Head to{" "}
-            <Link to="/log" className="text-[var(--electric)] hover:underline">Log</Link>
-            {" "}or any section to start tracking.
+            Tap the <span className="text-[var(--electric)] font-bold">+</span> button below to post your first activity today.
           </p>
         </div>
       </NCard>
@@ -88,43 +97,63 @@ function DailyTimeline({ date }: { date: string }) {
   }
 
   return (
-    <NCard className="py-5">
-      {/* Outer wrapper: left padding to make room for the icon column */}
-      <ul className="relative ml-3 space-y-5">
-        {/* Vertical connecting line — runs behind all dots */}
-        <div
-          aria-hidden
-          className="absolute left-3 top-4 bottom-4 w-px bg-border/50"
-        />
+    <div className="space-y-3">
+      {entries.map((entry) => {
+        const { icon: Icon, color, bgAlpha } = CATEGORY_META[entry.category];
+        const activeReaction = reactions[entry.id];
 
-        {entries.map((entry) => {
-          const { icon: Icon, color, bgAlpha } = CATEGORY_META[entry.category];
-          return (
-            <li key={entry.id} className="relative flex items-start gap-4 pl-10">
-              {/* Category dot / icon badge — sits on the vertical line */}
-              <div
-                aria-hidden
-                className="absolute left-0 top-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full"
-                style={{
-                  background: bgAlpha,
-                  boxShadow: `0 0 0 1.5px ${color}`,
-                }}
-              >
-                <Icon className="h-3.5 w-3.5" style={{ color }} />
+        return (
+          <div
+            key={entry.id}
+            className="group relative rounded-2xl border border-border/80 bg-[var(--surface-elevated)] p-4 shadow-md transition-all hover:border-[var(--electric)]/50"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+                  style={{
+                    background: bgAlpha,
+                    boxShadow: `0 0 12px ${color}30`,
+                  }}
+                >
+                  <Icon className="h-4 w-4" style={{ color }} />
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider" style={{ color }}>
+                      {entry.category}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">· Today</span>
+                  </div>
+                  <p className="mt-0.5 text-sm font-semibold text-foreground leading-snug">{entry.label}</p>
+                  {entry.detail && (
+                    <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{entry.detail}</p>
+                  )}
+                </div>
               </div>
 
-              {/* Text */}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm leading-snug text-foreground">{entry.label}</p>
-                {entry.detail && (
-                  <p className="mt-0.5 text-xs text-muted-foreground">{entry.detail}</p>
-                )}
+              {/* Twitter / Strava Style Quick Reaction Buttons */}
+              <div className="flex items-center gap-1 shrink-0">
+                {["🔥", "💪", "⚡", "🎯"].map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => toggleReaction(entry.id, emoji)}
+                    className={`rounded-full px-2 py-1 text-xs transition ${
+                      activeReaction === emoji
+                        ? "bg-[var(--electric)]/20 border border-[var(--electric)] scale-110 shadow-[0_0_8px_var(--electric)]"
+                        : "bg-[var(--surface)] text-muted-foreground hover:bg-muted opacity-70 hover:opacity-100"
+                    }`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
               </div>
-            </li>
-          );
-        })}
-      </ul>
-    </NCard>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -133,7 +162,17 @@ function DailyTimeline({ date }: { date: string }) {
 // ---------------------------------------------------------------------------
 
 export default function Dashboard() {
-  const { profile, days, books, readingSessions, supplements, getDay, upsertDay } = useApp();
+  const { profile, settings, days, books, readingSessions, supplements, getDay, upsertDay } = useApp();
+  const [params, setParams] = useSearchParams();
+  const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (params.get("tour") === "true") {
+      setTourOpen(true);
+      setParams({}, { replace: true });
+    }
+  }, [params, setParams]);
+
   const t = today();
   const day = getDay(t);
 
@@ -147,6 +186,10 @@ export default function Dashboard() {
   const netCals    = Math.round(cals - burned);
   const remainingCals = Math.round(targetCals - netCals);
 
+  const goalMode = settings.goalMode || "fat_loss";
+  const isFatLossSurplus = goalMode === "fat_loss" && netCals > targetCals;
+  const isMuscleGainDeficit = goalMode === "muscle_gain" && netCals < targetCals - 300 && cals > 0;
+
   const workoutDates = new Set(days.filter((d) => d.workouts.length > 0).map((d) => d.date));
   const workoutStreak = computeStreak(workoutDates);
   const readingDates  = new Set(readingSessions.map((s) => s.date));
@@ -155,7 +198,6 @@ export default function Dashboard() {
   const yesterday = isoDate(new Date(Date.now() - 86400000));
   const progress  = goalProgressPct(profile);
 
-  // Low stock alert
   const lowStockSupps = supplements.filter((s) => s.stock <= 3);
 
   function quickAddWater(ml: number = 250) {
@@ -166,6 +208,8 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-7">
+      <AppTour isOpen={tourOpen} onClose={() => setTourOpen(false)} />
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[var(--electric)]">{greeting()}</div>
@@ -174,13 +218,45 @@ export default function Dashboard() {
             <span className="text-muted-foreground">— let's move.</span>
           </h1>
         </div>
-        <Link
-          to={`/log?date=${yesterday}`}
-          className="flex items-center gap-2 rounded-full border border-border bg-[var(--surface)] px-4 py-2 text-sm hover:border-[var(--electric)]"
-        >
-          <Pencil className="h-3.5 w-3.5" /> Edit yesterday
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTourOpen(true)}
+            className="flex items-center gap-1.5 rounded-full border border-[var(--electric)]/40 bg-[var(--electric)]/10 px-3 py-1.5 text-xs font-semibold text-[var(--electric)] hover:bg-[var(--electric)]/20 transition"
+          >
+            <Sparkles className="h-3.5 w-3.5" /> App Guide
+          </button>
+          <Link
+            to={`/log?date=${yesterday}`}
+            className="flex items-center gap-2 rounded-full border border-border bg-[var(--surface)] px-4 py-2 text-sm hover:border-[var(--electric)]"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit yesterday
+          </Link>
+        </div>
       </div>
+
+      {/* ── Instagram-Style Daily Status Story Ring Bar ── */}
+      <StoryBar />
+
+      {/* ── Calorie Surplus/Deficit Season Alert ── */}
+      {isFatLossSurplus && (
+        <div className="flex items-center gap-3 rounded-2xl border border-destructive/60 bg-destructive/10 px-4 py-3 text-xs text-destructive-foreground animate-fade-in">
+          <AlertCircle className="h-5 w-5 shrink-0 text-destructive" />
+          <div className="min-w-0 flex-1 font-medium">
+            <span className="font-bold text-destructive">⚠️ Calorie Surplus Danger: </span>
+            You are currently in <span className="underline">Fat Loss Season</span> and have exceeded your target by {Math.abs(remainingCals)} kcal today.
+          </div>
+        </div>
+      )}
+
+      {isMuscleGainDeficit && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-xs text-amber-200 animate-fade-in">
+          <AlertCircle className="h-5 w-5 shrink-0 text-amber-400" />
+          <div className="min-w-0 flex-1 font-medium">
+            <span className="font-bold text-amber-300">⚠️ Calorie Deficit Warning: </span>
+            You are in <span className="underline">Muscle Gain Season</span> and are currently {remainingCals} kcal under target.
+          </div>
+        </div>
+      )}
 
       {/* ── Quick Action Bar ── */}
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/80 bg-[var(--surface)] p-2">

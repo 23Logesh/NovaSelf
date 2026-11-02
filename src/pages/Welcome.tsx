@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
-import { Apple, ArrowRight } from "lucide-react";
+import { Zap, ArrowRight } from "lucide-react";
 import { useApp } from "@/lib/novaself/store";
 import type { Sex } from "@/lib/novaself/calculations";
 
@@ -26,7 +26,7 @@ export default function Welcome() {
   function complete() {
     if (!valid) return;
     saveProfile({ ...form, name: form.name.trim(), startingWeightKg: form.weightKg });
-    navigate("/dashboard");
+    navigate("/dashboard?tour=true");
   }
 
   return (
@@ -37,7 +37,7 @@ export default function Welcome() {
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
         <div className="mb-10 flex items-center gap-3">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-[var(--electric)] to-[var(--neon)] text-[var(--primary-foreground)] shadow-[0_0_32px_var(--electric)]">
-            <Apple className="h-6 w-6" />
+            <Zap className="h-6 w-6 fill-current" />
           </div>
           <div>
             <div className="font-display text-2xl font-bold tracking-tight">NovaSelf</div>

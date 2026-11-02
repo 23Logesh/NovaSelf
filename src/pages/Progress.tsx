@@ -1,6 +1,7 @@
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ReferenceLine } from "recharts";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
+import { HumanBodyModel } from "@/components/novaself/HumanBodyModel";
 import { useApp } from "@/lib/novaself/store";
 import { goalETA, goalProgressPct } from "@/lib/novaself/calculations";
 import type { DayLog } from "@/lib/novaself/types";
@@ -43,6 +44,9 @@ export default function Progress() {
           <div className="mt-1 text-xs text-muted-foreground">of {days.length} tracked</div>
         </NCard>
       </div>
+
+      {/* Sex-Adjusted Anatomical Human Body Transformation Model */}
+      <HumanBodyModel />
 
       <NCard>
         <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Weight trend</h3>

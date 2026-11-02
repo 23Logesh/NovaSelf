@@ -41,7 +41,9 @@ interface AppActions {
   setMess: (m: MessItem[]) => void;
   setWorkoutPhases: (p: WorkoutPhase[]) => void;
   upsertSkin: (s: SkinLog) => void;
+  removeSkin: (date: string) => void;
   upsertSleep: (s: SleepLog) => void;
+  removeSleep: (date: string) => void;
   setSupplements: (s: Supplement[]) => void;
   logIntake: (i: SupplementIntake) => void;
   removeIntake: (intakeId: string) => void;
@@ -97,8 +99,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle("light", state.settings.theme === "light");
-    root.classList.toggle("dark", state.settings.theme === "dark");
+    root.classList.remove("light", "dark", "cyber");
+    let activeTheme = state.settings.theme;
+    if (activeTheme === "system") {
+      activeTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "cyber" : "light";
+    }
+    root.classList.add(activeTheme);
   }, [state.settings.theme]);
 
   const value = useMemo<Ctx>(() => {
@@ -200,12 +206,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ...s,
           skinLogs: [log, ...s.skinLogs.filter((x) => x.date !== log.date)],
         })),
+      removeSkin: (date) =>
+        setState((s) => ({ ...s, skinLogs: s.skinLogs.filter((x) => x.date !== date) })),
 
       upsertSleep: (log) =>
         setState((s) => ({
           ...s,
           sleepLogs: [log, ...s.sleepLogs.filter((x) => x.date !== log.date)],
         })),
+      removeSleep: (date) =>
+        setState((s) => ({ ...s, sleepLogs: s.sleepLogs.filter((x) => x.date !== date) })),
 
       setSupplements: (supplements) => update({ supplements }),
 

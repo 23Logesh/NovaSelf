@@ -9,6 +9,7 @@ import { SkinCheckIn } from "@/components/novaself/SkinCheckIn";
 import { SleepCheckIn } from "@/components/novaself/SleepCheckIn";
 import { ReadingSessionForm } from "@/components/novaself/ReadingSessionForm";
 import { MiniTrendChart } from "@/components/novaself/MiniTrendChart";
+import { CompareDays } from "@/components/novaself/CompareDays";
 import { useApp, today } from "@/lib/novaself/store";
 import { caloriesBurned, WORKOUT_METS, workoutLabel, calorieTarget, waterTargetMl, isoDate } from "@/lib/novaself/calculations";
 import { OPTIONAL_NUTRIENTS, COMMON_FOOD_PRESETS, type MealType } from "@/lib/novaself/types";
@@ -38,7 +39,16 @@ export default function LogPage() {
   const date = params.get("date") || today();
   const { getDay, upsertDay, logWeight, settings, profile } = useApp();
   const day = getDay(date);
-  const [tab, setTab] = useState<Tab>("food");
+
+  const urlTab = (params.get("tab") as Tab) || "food";
+  const [tab, setTab] = useState<Tab>(urlTab);
+
+  useEffect(() => {
+    const paramTab = params.get("tab") as Tab;
+    if (paramTab && TABS.some(([t]) => t === paramTab)) {
+      setTab(paramTab);
+    }
+  }, [params]);
 
   function update(patch: Partial<DayLog>) {
     upsertDay({ ...day, ...patch });
@@ -61,6 +71,9 @@ export default function LogPage() {
           />
         }
       />
+
+      {/* Historical Day Comparison Analytics Matrix */}
+      <CompareDays />
 
       {/* Tab bar — scrollable on mobile so all 8 fit */}
       <div className="overflow-x-auto">

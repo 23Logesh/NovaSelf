@@ -3,6 +3,9 @@ import { Plus, X, Layers, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
+import { GPSJoggingTracker } from "@/components/novaself/GPSJoggingTracker";
+import { SetTrackerModal } from "@/components/novaself/SetTrackerModal";
+import { Body3DView } from "@/components/novaself/Body3DView";
 import { useApp, today } from "@/lib/novaself/store";
 import { caloriesBurned } from "@/lib/novaself/calculations";
 import type { Exercise, WorkoutDay, WorkoutPhase } from "@/lib/novaself/types";
@@ -12,6 +15,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 export default function Workout() {
   const { workoutPhases, setWorkoutPhases } = useApp();
   const [newPhase, setNewPhase] = useState("");
+  const [activeTracker, setActiveTracker] = useState<"none" | "gps" | "sets">("none");
 
   function addPhase() {
     if (!newPhase.trim()) return;
@@ -25,12 +29,54 @@ export default function Workout() {
 
   return (
     <div className="space-y-7">
-      <SectionHeader eyebrow="Plan" title="Workout phases" description="Phase → day → exercise. Add anything you do — swimming, climbing, cycling, whatever." />
+      <SectionHeader
+        eyebrow="Training"
+        title="Workout & Fitness Tracker"
+        description="GPS Live Jogging Tracker, Set & Rep Tonnage Logger, and 3D Muscle Heatmaps."
+      />
 
+      {/* Tracker Mode Buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={() => setActiveTracker(activeTracker === "gps" ? "none" : "gps")}
+          className={`flex items-center justify-center gap-2 rounded-2xl border p-4 font-bold text-sm transition ${
+            activeTracker === "gps"
+              ? "border-[var(--neon)] bg-[var(--neon)]/20 text-[var(--neon)] shadow-[0_0_20px_var(--neon)]"
+              : "border-border bg-[var(--surface)] text-foreground hover:border-[var(--neon)]"
+          }`}
+        >
+          📍 Launch GPS Run & Jog Tracker
+        </button>
+
+        <button
+          onClick={() => setActiveTracker(activeTracker === "sets" ? "none" : "sets")}
+          className={`flex items-center justify-center gap-2 rounded-2xl border p-4 font-bold text-sm transition ${
+            activeTracker === "sets"
+              ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)] shadow-[0_0_20px_var(--electric)]"
+              : "border-border bg-[var(--surface)] text-foreground hover:border-[var(--electric)]"
+          }`}
+        >
+          🏋️ Set & Rep Gym / Sports Session
+        </button>
+      </div>
+
+      {/* Live Trackers */}
+      {activeTracker === "gps" && <GPSJoggingTracker onClose={() => setActiveTracker("none")} />}
+      {activeTracker === "sets" && <SetTrackerModal onClose={() => setActiveTracker("none")} />}
+
+      {/* 3D Muscle Group Heatmap */}
+      <Body3DView />
+
+      {/* Workout Phases */}
       <NCard glow="neon">
+        <h3 className="text-xs uppercase tracking-wider font-bold text-muted-foreground mb-3">Add Program Phase</h3>
         <div className="flex gap-2">
-          <input placeholder="New phase (e.g. Phase 3 — Swimming)" value={newPhase} onChange={(e) => setNewPhase(e.target.value)}
-            className="flex-1 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm outline-none focus:border-[var(--neon)]" />
+          <input
+            placeholder="New phase (e.g. Phase 3 — Swimming / Badminton)"
+            value={newPhase}
+            onChange={(e) => setNewPhase(e.target.value)}
+            className="flex-1 rounded-xl border border-border bg-[var(--surface-elevated)] px-3 py-2 text-sm outline-none focus:border-[var(--neon)]"
+          />
           <button onClick={addPhase} className="flex items-center gap-2 rounded-xl bg-[var(--neon)] px-4 text-sm font-semibold text-[var(--accent-foreground)]">
             <Plus className="h-4 w-4" /> Phase
           </button>
@@ -95,7 +141,7 @@ function DayBlock({ day, onChange, onRemove }: { day: WorkoutDay; onChange: (p: 
     const t = today();
     const currentDay = getDay(t);
     const totalMin = day.exercises.reduce((sum, e) => sum + (e.durationMin || 10), 0);
-    const burn = caloriesBurned(6.0, profile.weightKg, totalMin);
+    const burn = caloriesBurned(6.0, profile.weightKg || 70, totalMin);
     const notesSummary = day.exercises.map((e) => `${e.name} (${e.sets || 3}x${e.reps || 10})`).join(", ");
 
     const newWorkout = {
@@ -141,7 +187,6 @@ function DayBlock({ day, onChange, onRemove }: { day: WorkoutDay; onChange: (p: 
           </li>
         ))}
       </ul>
-      {/* FR-29: sets, reps, duration, AND notes are all enterable here. */}
       <div className="mt-2 grid grid-cols-2 gap-1.5 md:grid-cols-6">
         <input placeholder="Exercise" value={ex.name} onChange={(e) => setEx({ ...ex, name: e.target.value })} className="rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none md:col-span-2" />
         <input type="number" placeholder="Sets" value={ex.sets ?? ""} onChange={(e) => setEx({ ...ex, sets: e.target.value ? +e.target.value : undefined })} className="rounded-md border border-border bg-background px-2 py-1.5 text-xs outline-none" />

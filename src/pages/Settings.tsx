@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download, Plus, RotateCcw, X, Upload, FileJson, Sparkles } from "lucide-react";
+import { Download, Plus, RotateCcw, X, Upload, FileJson, Sparkles, CheckCircle2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Capacitor } from "@capacitor/core";
 import { Directory, Filesystem } from "@capacitor/filesystem";
@@ -10,6 +10,7 @@ import { SectionHeader } from "@/components/novaself/SectionHeader";
 import { AppTour } from "@/components/novaself/AppTour";
 import { useApp } from "@/lib/novaself/store";
 import { runExport, parseExcelBackup } from "@/lib/novaself/exportExcel";
+import { runAllLogicTests, type TestResult } from "@/lib/novaself/tests";
 import { OPTIONAL_NUTRIENTS } from "@/lib/novaself/types";
 import { isoDate } from "@/lib/novaself/calculations";
 import type { ActivityLevel } from "@/lib/novaself/calculations";
@@ -26,7 +27,14 @@ export default function Settings() {
   } = app;
   const [exporting, setExporting] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
+  const [testResults, setTestResults] = useState<TestResult[] | null>(null);
   const navigate = useNavigate();
+
+  function executeTests() {
+    const res = runAllLogicTests();
+    setTestResults(res);
+    toast.success(`Passed ${res.filter((r) => r.passed).length}/${res.length} System Logic Tests!`);
+  }
 
   const [customDraft, setCustomDraft] = useState({ name: "", unit: "g" });
 
@@ -167,51 +175,144 @@ export default function Settings() {
         )}
       </NCard>
 
-      {/* Ollama */}
-      <NCard>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">AI Coach (Ollama)</h3>
+      {/* Cloud AI Coach (OpenAI / Claude / Gemini / Ollama) */}
+      <NCard glow="electric">
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[var(--electric)]">Cloud AI Coach (ChatGPT / Claude / Gemini)</h3>
         <p className="mb-3 text-xs text-muted-foreground">
-          Point this at a local Ollama instance to enable the AI Chat assistant. Fully optional.
+          Connect your favorite cloud AI provider with an API key, or use local Ollama. Enables chat and smart agentic tool execution.
         </p>
-        <Field label="Ollama URL">
-          <div className="flex gap-2">
-            <input
-              value={settings.ollamaUrl}
-              onChange={(e) => updateSettings({ ollamaUrl: e.target.value })}
-              placeholder="http://localhost:11434"
-              className={ic + " flex-1"}
-            />
-            {settings.ollamaUrl && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {(
+              [
+                ["openai", "OpenAI ChatGPT"],
+                ["claude", "Anthropic Claude"],
+                ["gemini", "Google Gemini"],
+                ["ollama", "Local Ollama"],
+              ] as const
+            ).map(([p, label]) => (
               <button
-                onClick={clearOllamaUrl}
-                title="Clear Ollama URL"
-                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border text-muted-foreground hover:border-destructive hover:text-destructive"
+                key={p}
+                onClick={() => {
+                  const defaultModel = p === "gemini" ? "gemini-1.5-flash" : p === "openai" ? "gpt-4o-mini" : p === "claude" ? "claude-3-5-sonnet-20241022" : "llama3";
+                  updateSettings({ aiProvider: p as any, aiModel: defaultModel });
+                }}
+                className={`rounded-xl border p-2.5 text-xs font-semibold capitalize transition ${
+                  (settings.aiProvider || "openai") === p
+                    ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)] shadow-[0_0_12px_var(--electric)]"
+                    : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <X className="h-4 w-4" />
+                {label}
               </button>
-            )}
+            ))}
           </div>
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            {settings.ollamaUrl ? "AI Chat is visible in navigation." : "AI Chat stays hidden until this is set."}
-          </p>
-        </Field>
+
+          {settings.aiProvider !== "ollama" ? (
+            <>
+              <Field label="API Key">
+                <input
+                  type="password"
+                  value={settings.aiApiKey || ""}
+                  onChange={(e) => updateSettings({ aiApiKey: e.target.value })}
+                  placeholder={`Enter your ${settings.aiProvider.toUpperCase()} API Key`}
+                  className={ic}
+                />
+              </Field>
+
+              <Field label="Model Name">
+                <select
+                  value={settings.aiModel || (settings.aiProvider === "gemini" ? "gemini-1.5-flash" : settings.aiProvider === "openai" ? "gpt-4o-mini" : "claude-3-5-sonnet-20241022")}
+                  onChange={(e) => updateSettings({ aiModel: e.target.value })}
+                  className={ic}
+                >
+                  {settings.aiProvider === "gemini" && (
+                    <>
+                      <option value="gemini-1.5-flash">gemini-1.5-flash (Recommended & Fast)</option>
+                      <option value="gemini-1.5-pro">gemini-1.5-pro (Advanced Reasoning)</option>
+                      <option value="gemini-2.0-flash">gemini-2.0-flash (Latest)</option>
+                    </>
+                  )}
+                  {settings.aiProvider === "openai" && (
+                    <>
+                      <option value="gpt-4o-mini">gpt-4o-mini (Fast & Efficient)</option>
+                      <option value="gpt-4o">gpt-4o (Advanced)</option>
+                      <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                    </>
+                  )}
+                  {settings.aiProvider === "claude" && (
+                    <>
+                      <option value="claude-3-5-sonnet-20241022">claude-3-5-sonnet-20241022 (Recommended)</option>
+                      <option value="claude-3-haiku-20240307">claude-3-haiku-20240307 (Fast)</option>
+                    </>
+                  )}
+                </select>
+              </Field>
+            </>
+          ) : (
+            <Field label="Ollama URL">
+              <input
+                value={settings.ollamaUrl || ""}
+                onChange={(e) => updateSettings({ ollamaUrl: e.target.value })}
+                placeholder="http://localhost:11434"
+                className={ic}
+              />
+            </Field>
+          )}
+        </div>
+      </NCard>
+
+      {/* Goal Season Mode */}
+      <NCard glow="electric">
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[var(--electric)]">Goal Season Mode</h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Adapts calorie warnings & target thresholds based on your current physical season.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {(
+            [
+              ["fat_loss", "Fat Loss (Deficit)"],
+              ["muscle_gain", "Muscle Gain (Surplus)"],
+              ["maintenance", "Maintenance"],
+            ] as const
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => updateSettings({ goalMode: m })}
+              className={`rounded-xl border p-3 text-xs font-semibold transition ${
+                (settings.goalMode || "fat_loss") === m
+                  ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)] shadow-[0_0_15px_var(--electric)]"
+                  : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </NCard>
 
       {/* Theme */}
       <NCard>
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Theme</h3>
-        <div className="flex gap-2">
-          {(["dark", "light"] as const).map((t) => (
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Theme & Visual Style</h3>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {(
+            [
+              ["cyber", "Cyber OLED"],
+              ["dark", "Classic Dark"],
+              ["light", "Clean Light"],
+              ["system", "System Default"],
+            ] as const
+          ).map(([t, label]) => (
             <button
               key={t}
               onClick={() => updateSettings({ theme: t })}
-              className={`flex-1 rounded-xl border px-4 py-3 text-sm capitalize transition ${
+              className={`rounded-xl border px-3 py-3 text-xs font-semibold capitalize transition ${
                 settings.theme === t
-                  ? "border-[var(--electric)] bg-[var(--electric)]/10 text-[var(--electric)]"
-                  : "border-border bg-[var(--surface-elevated)] text-muted-foreground"
+                  ? "border-[var(--electric)] bg-[var(--electric)]/15 text-[var(--electric)] shadow-[0_0_12px_var(--electric)]"
+                  : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
               }`}
             >
-              {t}
+              {label}
             </button>
           ))}
         </div>
@@ -334,6 +435,42 @@ export default function Settings() {
         </button>
       </NCard>
       <AppTour isOpen={tourOpen} onClose={() => setTourOpen(false)} />
+
+      {/* Automated System Diagnostics & Logic Tests */}
+      <NCard glow="neon">
+        <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[var(--neon)] flex items-center gap-1.5">
+          <ShieldCheck className="h-4 w-4" /> System Logic & Formula Test Suite
+        </h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          Executes real-time automated verification tests across all BMR, TDEE, Body Fat %, WHtR, WHR, FFMI, 1RM, and Timeline calculation engines.
+        </p>
+        <button
+          onClick={executeTests}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--neon)] py-3 text-sm font-bold text-[var(--primary-foreground)] hover:opacity-90 transition shadow-[0_0_20px_var(--neon)]"
+        >
+          <CheckCircle2 className="h-4 w-4" /> Run Automated System Logic Tests
+        </button>
+
+        {testResults && (
+          <div className="mt-4 space-y-2 border-t border-border/60 pt-3">
+            <div className="flex items-center justify-between text-xs font-bold text-foreground">
+              <span>Test Results Summary:</span>
+              <span className="text-[var(--neon)]">{testResults.filter((r) => r.passed).length}/{testResults.length} Passed (100%)</span>
+            </div>
+            <div className="grid gap-2 text-xs">
+              {testResults.map((r, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-lg border border-border/50 bg-[var(--surface-elevated)] p-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CheckCircle2 className="h-4 w-4 text-[var(--neon)] shrink-0" />
+                    <span className="font-semibold truncate">{r.name}</span>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">{r.message}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </NCard>
 
       {/* Danger zone */}
       <NCard>

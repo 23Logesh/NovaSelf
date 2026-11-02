@@ -153,11 +153,13 @@ export function caloriesBurned(met: number, weightKg: number, minutes: number) {
 
 export const WORKOUT_METS: Record<string, number> = {
   jogging: 7.0,
-  jump_rope: 12.3,
+  running: 8.5,
+  badminton_shuttle: 5.5,
   swimming: 8.0,
-  gym: 6.0,
+  jump_rope: 12.3,
   cycling: 7.5,
   hiit: 9.0,
+  gym: 6.0,
   yoga: 3.0,
   calisthenics: 5.5,
 };

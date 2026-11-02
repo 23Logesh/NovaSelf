@@ -121,6 +121,8 @@ export interface ChatMessage { id: string; role: "user" | "assistant"; content: 
 
 export type GoalMode = "fat_loss" | "muscle_gain" | "maintenance";
 
+export type AIProvider = "openai" | "claude" | "gemini" | "ollama";
+
 export interface AppSettings {
   theme: "cyber" | "dark" | "light" | "system";
   goalMode: GoalMode;
@@ -135,4 +137,7 @@ export interface AppSettings {
     fiber: boolean;
   };
   ollamaUrl: string;
+  aiProvider: AIProvider;
+  aiApiKey: string;
+  aiModel: string;
 }

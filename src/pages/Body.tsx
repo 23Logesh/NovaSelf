@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NCard } from "@/components/novaself/NCard";
 import { SectionHeader } from "@/components/novaself/SectionHeader";
+import { BodyVisualMirror } from "@/components/novaself/BodyVisualMirror";
 import { useApp } from "@/lib/novaself/store";
 import {
   bmi, bmiCategory, bmr, tdee, calorieTarget, calculatedCalorieTarget, proteinTargetG, fiberTargetG,
@@ -44,6 +45,9 @@ export default function Body() {
         <BigStat label="FFMI Index" value={ffmiData ? ffmiData.ffmi.toFixed(1) : "—"} sub={ffmiData ? ffmiData.category : "Muscle Index"} color="electric" />
         <BigStat label="Omega-3 target" value={`${omega3TargetG()} g`} sub="reference / day" />
       </div>
+
+      {/* ── Live Visual Body Transformation Mirror ── */}
+      <BodyVisualMirror />
 
       {/* ── 1-Rep Max Calculator ── */}
       <NCard>

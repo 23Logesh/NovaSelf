@@ -1,4 +1,4 @@
-import { Moon, RotateCcw } from "lucide-react";
+import { Moon, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { NCard } from "@/components/novaself/NCard";
@@ -6,7 +6,7 @@ import { useApp, today } from "@/lib/novaself/store";
 import type { SleepLog } from "@/lib/novaself/types";
 
 export function SleepCheckIn() {
-  const { sleepLogs, upsertSleep } = useApp();
+  const { sleepLogs, upsertSleep, removeSleep } = useApp();
   const existing = sleepLogs.find((s) => s.date === today());
   const [log, setLog] = useState<SleepLog>(
     existing ?? {
@@ -25,25 +25,14 @@ export function SleepCheckIn() {
     upsertSleep(next);
   }
 
-  function resetLog() {
+  function deleteLog() {
     const prev = existing;
-    const blank: SleepLog = {
-      date: today(),
-      bedTime: "23:00",
-      wakeTime: "07:00",
-      durationHours: 8,
-      quality: 3,
-    };
-    setLog(blank);
-    upsertSleep(blank);
-    toast("Sleep log reset", {
+    removeSleep(today());
+    toast.success("Sleep log deleted", {
       action: {
         label: "Undo",
         onClick: () => {
-          if (prev) {
-            setLog(prev);
-            upsertSleep(prev);
-          }
+          if (prev) upsertSleep(prev);
         },
       },
     });
@@ -60,13 +49,15 @@ export function SleepCheckIn() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={resetLog}
-              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition"
-              title="Reset sleep log"
-            >
-              <RotateCcw className="h-3 w-3" /> Reset
-            </button>
+            {existing && (
+              <button
+                onClick={deleteLog}
+                className="flex items-center gap-1 text-[11px] text-destructive hover:underline transition"
+                title="Delete sleep log"
+              >
+                <Trash2 className="h-3 w-3" /> Delete Log
+              </button>
+            )}
             <Moon className="h-10 w-10 text-[var(--electric)]" />
           </div>
         </div>
