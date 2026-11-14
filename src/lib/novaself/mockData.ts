@@ -23,7 +23,7 @@ export const defaultProfile: Profile = {
 };
 
 export const defaultSettings: AppSettings = {
-  theme: "cyber",
+  theme: "mono",
   goalMode: "fat_loss",
   enabledNutrients: {
     carbs: true, fat: true, satFat: false, sugar: false, sodium: false,
@@ -43,6 +43,9 @@ export const defaultSettings: AppSettings = {
   aiProvider: "openai",
   aiApiKey: "",
   aiModel: "gpt-4o-mini",
+  pageTransition: "slide",
+  pageTransitionDuration: 250,
+  thirukuralLanguage: "ta",
 };
 
 function makeDay(date: string, weight?: number): DayLog {

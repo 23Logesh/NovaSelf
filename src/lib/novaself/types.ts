@@ -124,8 +124,10 @@ export type GoalMode = "fat_loss" | "muscle_gain" | "maintenance";
 
 export type AIProvider = "openai" | "claude" | "gemini" | "ollama";
 
+export type PageTransition = "slide" | "fade" | "scale" | "flip" | "none";
+
 export interface AppSettings {
-  theme: "cyber" | "dark" | "light" | "system";
+  theme: "mono" | "cyber" | "dark" | "light" | "system";
   goalMode: GoalMode;
   enabledNutrients: Record<OptionalNutrient, boolean>;
   customNutrients: CustomNutrient[];
@@ -141,4 +143,7 @@ export interface AppSettings {
   aiProvider: AIProvider;
   aiApiKey: string;
   aiModel: string;
+  pageTransition?: PageTransition;
+  pageTransitionDuration?: number;
+  thirukuralLanguage?: "ta" | "en";
 }

@@ -177,6 +177,103 @@ export default function Settings() {
         )}
       </NCard>
 
+      {/* Appearance & Screen Transitions */}
+      <NCard>
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Appearance & Screen Transitions</h3>
+
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Theme Mode</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {(["mono", "cyber", "dark", "light", "system"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => updateSettings({ theme: t })}
+                  className={`rounded-xl border p-2.5 text-xs font-bold capitalize transition ${
+                    settings.theme === t
+                      ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)]"
+                      : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {t === "mono" ? "Mono (B&W)" : t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Screen Transition Animation</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              {[
+                ["slide", "Horizontal Slide"],
+                ["fade", "Smooth Fade"],
+                ["scale", "Zoom Scale"],
+                ["flip", "3D Flip"],
+                ["none", "None"],
+              ].map(([p, label]) => (
+                <button
+                  key={p}
+                  onClick={() => updateSettings({ pageTransition: p as any })}
+                  className={`rounded-xl border p-2.5 text-xs font-bold transition ${
+                    (settings.pageTransition || "slide") === p
+                      ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)]"
+                      : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Transition Duration</label>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                [150, "Fast (150ms)"],
+                [250, "Normal (250ms)"],
+                [350, "Smooth (350ms)"],
+                [500, "Slow (500ms)"],
+              ].map(([d, label]) => (
+                <button
+                  key={d}
+                  onClick={() => updateSettings({ pageTransitionDuration: d as number })}
+                  className={`rounded-xl border p-2.5 text-xs font-bold transition ${
+                    (settings.pageTransitionDuration ?? 250) === d
+                      ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)]"
+                      : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-muted-foreground">Thirukural Meaning Language (AI Enabled)</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                ["ta", "தமிழ் (Tamil - Default)"],
+                ["en", "English"],
+              ].map(([lang, label]) => (
+                <button
+                  key={lang}
+                  onClick={() => updateSettings({ thirukuralLanguage: lang as any })}
+                  className={`rounded-xl border p-2.5 text-xs font-bold transition ${
+                    (settings.thirukuralLanguage || "ta") === lang
+                      ? "border-[var(--electric)] bg-[var(--electric)]/20 text-[var(--electric)]"
+                      : "border-border bg-[var(--surface-elevated)] text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </NCard>
+
       {/* Cloud AI Coach (OpenAI / Claude / Gemini / Ollama) */}
       <NCard glow="electric">
         <h3 className="mb-2 text-sm font-semibold uppercase tracking-wider text-[var(--electric)]">Cloud AI Coach (ChatGPT / Claude / Gemini)</h3>

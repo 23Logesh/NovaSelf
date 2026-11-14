@@ -155,7 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    root.classList.remove("light", "dark", "cyber");
+    root.classList.remove("light", "dark", "cyber", "mono");
     let activeTheme = state.settings.theme;
     if (activeTheme === "system") {
       activeTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "cyber" : "light";
